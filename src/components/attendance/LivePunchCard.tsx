@@ -66,9 +66,22 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
   const [geoError, setGeoError] = useState<string | null>(null);
   const [simulateOffice, setSimulateOffice] = useState(false);
 
-  // Active Branch coordinates
+  // Listen for branch and geofence settings updates
+  const [branchUpdateKey, setBranchUpdateKey] = useState(0);
+
+  useEffect(() => {
+    const handleBranchUpdate = () => setBranchUpdateKey((k) => k + 1);
+    window.addEventListener('branches_updated', handleBranchUpdate);
+    window.addEventListener('settings_updated', handleBranchUpdate);
+    return () => {
+      window.removeEventListener('branches_updated', handleBranchUpdate);
+      window.removeEventListener('settings_updated', handleBranchUpdate);
+    };
+  }, []);
+
+  // Active Branch coordinates (with saved localStorage override & fallback)
   const branches = attendanceRepo.getBranches();
-  const userBranch: Branch =
+  const primaryBranch =
     branches.find((b) => b.id === currentUser.branchId) ||
     branches[0] || {
       id: 'b-default',
@@ -81,9 +94,25 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
       radiusMeters: 150,
     };
 
-  const branchLat = userBranch.latitude || -6.2146;
-  const branchLon = userBranch.longitude || 106.8214;
-  const branchRadius = userBranch.radiusMeters || 150;
+  let customSettings: any = null;
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem('tier1_office_settings');
+      if (saved) customSettings = JSON.parse(saved);
+    } catch (e) {}
+  }
+
+  const branchLat = Number(customSettings?.officeLat ?? primaryBranch.latitude ?? -6.2146);
+  const branchLon = Number(customSettings?.officeLon ?? primaryBranch.longitude ?? 106.8214);
+  const branchRadius = Number(customSettings?.geofenceRadius ?? primaryBranch.radiusMeters ?? 150);
+  const branchName = customSettings?.companyName ?? primaryBranch.name ?? 'Headquarter Sudirman';
+  const userBranch: Branch = {
+    ...primaryBranch,
+    name: branchName,
+    latitude: branchLat,
+    longitude: branchLon,
+    radiusMeters: branchRadius,
+  };
 
   // Real-time clock
   useEffect(() => {

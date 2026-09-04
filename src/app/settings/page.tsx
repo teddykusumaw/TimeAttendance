@@ -21,6 +21,7 @@ import {
   User,
   Unlock,
   Info,
+  Trash2,
 } from 'lucide-react';
 import RoleGuard from '@/components/auth/RoleGuard';
 import { GeocodeAddress, reverseGeocode } from '@/lib/geo-utils';
@@ -70,6 +71,48 @@ export default function SettingsPage() {
   const [detectingOfficeGps, setDetectingOfficeGps] = useState(false);
   const [officeAddress, setOfficeAddress] = useState<GeocodeAddress | null>(null);
   const [loadingAddress, setLoadingAddress] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isClearingData, setIsClearingData] = useState(false);
+  const [clearStatus, setClearStatus] = useState<string | null>(null);
+
+  // Load saved branch & geofencing configurations on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('tier1_office_settings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.companyName) setCompanyName(parsed.companyName);
+        if (parsed.timezone) setTimezone(parsed.timezone);
+        if (parsed.geofenceRadius) setGeofenceRadius(Number(parsed.geofenceRadius));
+        if (parsed.officeLat) setOfficeLat(Number(parsed.officeLat));
+        if (parsed.officeLon) setOfficeLon(Number(parsed.officeLon));
+      }
+    } catch (e) {}
+
+    const primary = attendanceRepo.getBranches()[0];
+    if (primary) {
+      if (primary.name) setCompanyName(primary.name);
+      if (primary.timezone) setTimezone(primary.timezone);
+      if (primary.radiusMeters) setGeofenceRadius(primary.radiusMeters);
+      if (primary.latitude) setOfficeLat(primary.latitude);
+      if (primary.longitude) setOfficeLon(primary.longitude);
+    }
+
+    fetch('/api/branches')
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
+          const b = json.data[0];
+          if (b.name) setCompanyName(b.name);
+          if (b.timezone) setTimezone(b.timezone);
+          if (b.radiusMeters) setGeofenceRadius(b.radiusMeters);
+          if (b.latitude) setOfficeLat(b.latitude);
+          if (b.longitude) setOfficeLon(b.longitude);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Reverse geocode office coordinates
   useEffect(() => {
@@ -100,6 +143,61 @@ export default function SettingsPage() {
       },
       { enableHighAccuracy: true }
     );
+  };
+
+  const handleSaveSettings = async () => {
+    setIsSaving(true);
+    setSaveStatus(null);
+    try {
+      const branches = attendanceRepo.getBranches();
+      const primaryId = branches[0]?.id || 'b-1';
+
+      await attendanceRepo.updateBranch(primaryId, {
+        name: companyName,
+        timezone,
+        radiusMeters: geofenceRadius,
+        latitude: officeLat,
+        longitude: officeLon,
+      });
+
+      localStorage.setItem(
+        'tier1_office_settings',
+        JSON.stringify({ companyName, timezone, geofenceRadius, officeLat, officeLon })
+      );
+
+      setSaveStatus({
+        type: 'success',
+        message: 'Pengaturan kebijakan geofence & titik kantor berhasil disimpan permanen ke Neon PostgreSQL dan browser!',
+      });
+      setTimeout(() => setSaveStatus(null), 5000);
+    } catch (err: any) {
+      setSaveStatus({
+        type: 'error',
+        message: 'Gagal menyimpan pengaturan: ' + (err.message || 'Kesalahan jaringan'),
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleClearDemoData = async () => {
+    const confirmClear = confirm(
+      'PERINGATAN BERSIHKAN DATA DEMO:\n\n' +
+      'Apakah Anda yakin ingin membersihkan SEMUA data demo absensi?\n\n' +
+      'Tindakan ini akan menghapus seluruh rekaman presensi di database Neon PostgreSQL dan browser, sehingga sistem bersih (0 data presensi) untuk pengujian Anda.'
+    );
+    if (!confirmClear) return;
+
+    setIsClearingData(true);
+    try {
+      await attendanceRepo.clearAllAttendance();
+      setClearStatus('Seluruh data demo absensi berhasil dibersihkan! Status presensi kini 0 (bersih untuk pengujian).');
+      setTimeout(() => setClearStatus(null), 7000);
+    } catch (e: any) {
+      alert('Gagal membersihkan data: ' + e.message);
+    } finally {
+      setIsClearingData(false);
+    }
   };
 
 
@@ -357,13 +455,32 @@ export default function SettingsPage() {
           />
         </div>
 
+        {saveStatus && (
+          <div
+            className={`p-3.5 rounded-xl border text-xs flex items-center gap-2.5 ${
+              saveStatus.type === 'success'
+                ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
+                : 'bg-rose-950/30 border-rose-500/40 text-rose-300'
+            }`}
+          >
+            {saveStatus.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
+            <span>{saveStatus.message}</span>
+          </div>
+        )}
+
         <div className="flex justify-end pt-3">
           <button
-            onClick={() => alert('Pengaturan kebijakan geofence dan titik kantor berhasil disimpan.')}
-            className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all"
+            type="button"
+            onClick={handleSaveSettings}
+            disabled={isSaving}
+            className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all active:scale-98"
           >
-            <Save className="w-4 h-4" />
-            <span>Simpan Konfigurasi</span>
+            <Save className={`w-4 h-4 ${isSaving ? 'animate-spin' : ''}`} />
+            <span>{isSaving ? 'Menyimpan ke Database...' : 'Simpan Konfigurasi'}</span>
           </button>
         </div>
       </div>
@@ -550,6 +667,45 @@ export default function SettingsPage() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Demo Data Purge & Testing Reset Panel */}
+      <div className="enterprise-card rounded-2xl p-6 space-y-4 border-rose-500/20 bg-rose-950/10">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center border border-rose-500/20">
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Bersihkan Semua Data Demo Presensi</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                  Testing Mode
+                </span>
+              </h3>
+              <p className="text-xs text-slate-400">
+                Kosongkan rekaman absensi demo di database & browser agar Anda dapat menguji absensi live dari nol (0 data).
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleClearDemoData}
+            disabled={isClearingData}
+            className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all shrink-0 active:scale-98"
+          >
+            <Trash2 className={`w-4 h-4 ${isClearingData ? 'animate-spin' : ''}`} />
+            <span>{isClearingData ? 'Membersihkan Data...' : 'Bersihkan Data Demo Sekarang'}</span>
+          </button>
+        </div>
+
+        {clearStatus && (
+          <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{clearStatus}</span>
+          </div>
+        )}
       </div>
     </div>
     </RoleGuard>

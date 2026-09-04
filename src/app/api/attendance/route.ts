@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { INITIAL_ATTENDANCE } from '@/lib/mock-data';
 import { AttendanceRecord, AttendanceStatus, VerificationMethod } from '@/types';
 
 export const dynamic = 'force-dynamic';
@@ -37,59 +36,47 @@ export async function GET(request: Request) {
       take: 100,
     });
 
-    if (dbRecords.length > 0) {
-      const mappedRecords: AttendanceRecord[] = dbRecords.map((r) => ({
-        id: r.id,
-        userId: r.userId,
-        employeeCode: r.user.employeeCode,
-        employeeName: r.user.fullName,
-        departmentName: r.user.department?.name || 'Divisi',
-        branchName: r.branch.name,
-        shiftName: r.shift?.name || 'Standard Shift',
-        date: r.date.toISOString().split('T')[0],
-        checkIn: r.checkIn ? r.checkIn.toISOString() : undefined,
-        checkOut: r.checkOut ? r.checkOut.toISOString() : undefined,
-        status: r.status as AttendanceStatus,
-        lateMinutes: r.lateMinutes,
-        earlyMinutes: r.earlyMinutes,
-        overtimeMinutes: r.overtimeMinutes,
-        effectiveWorkHours: r.effectiveWorkHours,
-        verificationMethod: r.verificationMethod as VerificationMethod,
-        photoUrl: r.photoUrl || undefined,
-        notes: r.notes || undefined,
-        createdAt: r.createdAt.toISOString(),
-      }));
+    const mappedRecords: AttendanceRecord[] = dbRecords.map((r) => ({
+      id: r.id,
+      userId: r.userId,
+      employeeCode: r.user.employeeCode,
+      employeeName: r.user.fullName,
+      departmentName: r.user.department?.name || 'Divisi',
+      branchName: r.branch.name,
+      shiftName: r.shift?.name || 'Standard Shift',
+      date: r.date.toISOString().split('T')[0],
+      checkIn: r.checkIn ? r.checkIn.toISOString() : undefined,
+      checkOut: r.checkOut ? r.checkOut.toISOString() : undefined,
+      status: r.status as AttendanceStatus,
+      lateMinutes: r.lateMinutes,
+      earlyMinutes: r.earlyMinutes,
+      overtimeMinutes: r.overtimeMinutes,
+      effectiveWorkHours: r.effectiveWorkHours,
+      verificationMethod: r.verificationMethod as VerificationMethod,
+      photoUrl: r.photoUrl || undefined,
+      notes: r.notes || undefined,
+      createdAt: r.createdAt.toISOString(),
+    }));
 
-      return NextResponse.json({
-        status: 'success',
-        source: 'database',
-        data: mappedRecords,
-        meta: {
-          total: mappedRecords.length,
-          timestamp: new Date().toISOString(),
-          database: 'Neon Serverless PostgreSQL',
-        },
-      });
-    }
-
-    // Fallback to initial seed if empty
     return NextResponse.json({
       status: 'success',
-      source: 'fallback',
-      data: INITIAL_ATTENDANCE,
+      source: 'database',
+      data: mappedRecords,
       meta: {
-        total: INITIAL_ATTENDANCE.length,
+        total: mappedRecords.length,
         timestamp: new Date().toISOString(),
+        database: 'Neon Serverless PostgreSQL',
       },
     });
   } catch (err: any) {
     console.error('Error fetching attendance from database:', err);
     return NextResponse.json({
-      status: 'success',
-      source: 'fallback_error',
-      data: INITIAL_ATTENDANCE,
+      status: 'error',
+      source: 'database_error',
+      data: [],
       error: err.message,
-    });
+      meta: { total: 0 },
+    }, { status: 500 });
   }
 }
 
@@ -244,6 +231,23 @@ export async function POST(request: Request) {
     console.error('Error saving attendance to database:', error);
     return NextResponse.json(
       { status: 'error', message: error.message || 'Gagal menyimpan presensi ke database.' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE() {
+  try {
+    const result = await prisma.attendanceRecord.deleteMany();
+    return NextResponse.json({
+      status: 'success',
+      message: `Berhasil membersihkan seluruh data presensi (${result.count} data terhapus).`,
+      count: result.count,
+    });
+  } catch (error: any) {
+    console.error('Error clearing attendance records in database:', error);
+    return NextResponse.json(
+      { status: 'error', message: error.message || 'Gagal membersihkan data presensi di database.' },
       { status: 500 }
     );
   }

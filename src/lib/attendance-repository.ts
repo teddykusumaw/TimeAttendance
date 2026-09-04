@@ -55,22 +55,45 @@ class AttendanceRepository {
     if (typeof window === 'undefined') return;
     try {
       const storedAtt = localStorage.getItem(`${STORAGE_PREFIX}attendance`);
-      if (storedAtt) this.attendance = JSON.parse(storedAtt);
+      if (storedAtt) {
+        const parsed: AttendanceRecord[] = JSON.parse(storedAtt);
+        // Purge legacy demo attendance records (IDs matching mock att-1 to att-24)
+        this.attendance = parsed.filter((r) => {
+          if (!r.id) return false;
+          if (r.id.startsWith('att-') && !r.id.startsWith('att-17') && !r.id.startsWith('att-real')) {
+            const num = Number(r.id.replace('att-', ''));
+            if (!isNaN(num) && num < 1000) return false;
+          }
+          return true;
+        });
+      }
 
       const storedBatches = localStorage.getItem(`${STORAGE_PREFIX}batches`);
-      if (storedBatches) this.batches = JSON.parse(storedBatches);
+      if (storedBatches) {
+        const parsed = JSON.parse(storedBatches);
+        this.batches = parsed.filter((b: any) => !['batch-01', 'batch-02'].includes(b.id));
+      }
 
       const storedLogs = localStorage.getItem(`${STORAGE_PREFIX}logs`);
-      if (storedLogs) this.auditLogs = JSON.parse(storedLogs);
+      if (storedLogs) {
+        const parsed = JSON.parse(storedLogs);
+        this.auditLogs = parsed.filter((l: any) => !['log-1', 'log-2', 'log-3'].includes(l.id));
+      }
 
       const storedLeaves = localStorage.getItem(`${STORAGE_PREFIX}leaves`);
-      if (storedLeaves) this.leaveRequests = JSON.parse(storedLeaves);
+      if (storedLeaves) {
+        const parsed = JSON.parse(storedLeaves);
+        this.leaveRequests = parsed.filter((lr: any) => !['lr-1', 'lr-2'].includes(lr.id));
+      }
 
       const storedUsers = localStorage.getItem(`${STORAGE_PREFIX}users`);
       if (storedUsers) this.users = JSON.parse(storedUsers);
 
       const storedInvitations = localStorage.getItem(`${STORAGE_PREFIX}invitations`);
       if (storedInvitations) this.invitations = JSON.parse(storedInvitations);
+
+      const storedBranches = localStorage.getItem(`${STORAGE_PREFIX}branches`);
+      if (storedBranches) this.branches = JSON.parse(storedBranches);
 
       this.isInitialized = true;
     } catch (e) {
@@ -92,11 +115,11 @@ class AttendanceRepository {
         }
       }
 
-      // 2. Fetch Attendance Records from Neon PostgreSQL
+      // 2. Fetch Attendance Records from Neon PostgreSQL (accept empty array to clean demo)
       const attRes = await fetch('/api/attendance', { cache: 'no-store' });
       if (attRes.ok) {
         const json = await attRes.json();
-        if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
+        if (json.status === 'success' && Array.isArray(json.data)) {
           this.attendance = json.data;
           this.syncToStorage();
           window.dispatchEvent(new CustomEvent('attendance_updated'));
@@ -113,6 +136,17 @@ class AttendanceRepository {
           window.dispatchEvent(new CustomEvent('invitations_synced', { detail: this.invitations }));
         }
       }
+
+      // 4. Fetch Branches from Neon PostgreSQL
+      const branchRes = await fetch('/api/branches', { cache: 'no-store' });
+      if (branchRes.ok) {
+        const json = await branchRes.json();
+        if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
+          this.branches = json.data;
+          this.syncToStorage();
+          window.dispatchEvent(new CustomEvent('branches_updated', { detail: this.branches }));
+        }
+      }
     } catch (e) {
       console.warn('[Neon DB] Background sync note:', e);
     }
@@ -127,9 +161,64 @@ class AttendanceRepository {
       localStorage.setItem(`${STORAGE_PREFIX}leaves`, JSON.stringify(this.leaveRequests));
       localStorage.setItem(`${STORAGE_PREFIX}users`, JSON.stringify(this.users));
       localStorage.setItem(`${STORAGE_PREFIX}invitations`, JSON.stringify(this.invitations));
+      localStorage.setItem(`${STORAGE_PREFIX}branches`, JSON.stringify(this.branches));
     } catch (e) {
       console.error('Failed to sync to localStorage', e);
     }
+  }
+
+  public async updateBranch(branchId: string, data: Partial<Branch>): Promise<Branch | null> {
+    const idx = this.branches.findIndex((b) => b.id === branchId || b.code === branchId);
+    if (idx === -1) {
+      if (this.branches.length > 0) {
+        this.branches[0] = { ...this.branches[0], ...data };
+        this.syncToStorage();
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('branches_updated', { detail: this.branches }));
+          window.dispatchEvent(new CustomEvent('settings_updated', { detail: this.branches[0] }));
+        }
+        return this.branches[0];
+      }
+      return null;
+    }
+
+    const updated: Branch = {
+      ...this.branches[idx],
+      ...data,
+    };
+    this.branches[idx] = updated;
+    this.syncToStorage();
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('branches_updated', { detail: this.branches }));
+      window.dispatchEvent(new CustomEvent('settings_updated', { detail: updated }));
+
+      // Persist to Neon PostgreSQL
+      fetch('/api/branches', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          branchId: updated.id,
+          ...data,
+        }),
+      }).catch((e) => console.warn('[Neon DB] updateBranch sync note:', e));
+    }
+
+    return updated;
+  }
+
+  public async clearAllAttendance(): Promise<boolean> {
+    this.attendance = [];
+    this.syncToStorage();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('attendance_updated'));
+      try {
+        await fetch('/api/attendance', { method: 'DELETE' });
+      } catch (e) {
+        console.warn('[Neon DB] clearAllAttendance sync note:', e);
+      }
+    }
+    return true;
   }
 
   // --- Attendance Queries & Actions ---
