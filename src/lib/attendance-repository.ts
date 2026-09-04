@@ -151,6 +151,17 @@ class AttendanceRepository {
           window.dispatchEvent(new CustomEvent('branches_updated', { detail: this.branches }));
         }
       }
+
+      // 5. Fetch Audit Logs from Neon PostgreSQL
+      const logsRes = await fetch('/api/audit-logs', { cache: 'no-store' });
+      if (logsRes.ok) {
+        const json = await logsRes.json();
+        if (json.status === 'success' && Array.isArray(json.data)) {
+          this.auditLogs = json.data;
+          this.syncToStorage();
+          window.dispatchEvent(new CustomEvent('audit_logs_updated', { detail: this.auditLogs }));
+        }
+      }
     } catch (e) {
       console.warn('[Neon DB] Background sync note:', e);
     }
@@ -925,6 +936,24 @@ class AttendanceRepository {
       createdAt: new Date().toISOString(),
     };
     this.auditLogs.unshift(log);
+    this.syncToStorage();
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('audit_logs_updated', { detail: this.auditLogs }));
+
+      fetch('/api/audit-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actorId: entry.actorId,
+          action: entry.action,
+          entityType: entry.entityType,
+          entityId: entry.entityId,
+          details: entry.details,
+          ipAddress: entry.ipAddress,
+        }),
+      }).catch((e) => console.warn('[Neon DB] audit log sync error:', e));
+    }
   }
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
   Search,
@@ -11,15 +11,46 @@ import {
   Terminal,
   FileSpreadsheet,
   Calendar,
+  RefreshCw,
+  Database,
 } from 'lucide-react';
 import { attendanceRepo } from '@/lib/attendance-repository';
 import RoleGuard from '@/components/auth/RoleGuard';
+import { AuditLog } from '@/types';
 
 export default function AuditLogPage() {
   const [filterAction, setFilterAction] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
+  const [logs, setLogs] = useState<AuditLog[]>(attendanceRepo.getAuditLogs());
+  const [loading, setLoading] = useState(false);
 
-  const logs = attendanceRepo.getAuditLogs();
+  const fetchAuditLogs = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/audit-logs', { cache: 'no-store' });
+      const json = await res.json();
+      if (res.ok && json.status === 'success' && Array.isArray(json.data)) {
+        setLogs(json.data);
+      }
+    } catch (e) {
+      console.warn('Error fetching audit logs:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAuditLogs();
+
+    const handleUpdate = (e: Event) => {
+      const customEvent = e as CustomEvent<AuditLog[]>;
+      if (customEvent.detail) setLogs(customEvent.detail);
+      else fetchAuditLogs();
+    };
+
+    window.addEventListener('audit_logs_updated', handleUpdate);
+    return () => window.removeEventListener('audit_logs_updated', handleUpdate);
+  }, []);
 
   const filteredLogs = logs.filter((log) => {
     if (filterAction !== 'ALL' && log.action !== filterAction) return false;
@@ -48,8 +79,24 @@ export default function AuditLogPage() {
             Audit Trail & Log Kepatuhan (Tier 1)
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Catatan mutasi tak terhapuskan (immutable) untuk setiap aksi presensi, approval, dan impor Excel.
+            Catatan mutasi tak terhapuskan (immutable) yang tersimpan langsung di Neon PostgreSQL.
           </p>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <div className="px-3 py-1.5 rounded-xl bg-purple-950/40 border border-purple-500/30 text-purple-300 text-xs font-semibold flex items-center gap-2">
+            <Database className="w-3.5 h-3.5 text-purple-400" />
+            <span>Neon DB ({filteredLogs.length} Log)</span>
+          </div>
+          <button
+            type="button"
+            onClick={fetchAuditLogs}
+            disabled={loading}
+            className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-white flex items-center gap-2 transition-all shadow-sm active:scale-95"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-purple-400 ${loading ? 'animate-spin' : ''}`} />
+            <span>{loading ? 'Menyinkronkan...' : 'Segarkan'}</span>
+          </button>
         </div>
       </div>
 
@@ -74,9 +121,14 @@ export default function AuditLogPage() {
               onChange={(e) => setFilterAction(e.target.value)}
               className="w-full text-xs pl-9 pr-3 py-2.5 rounded-xl bg-slate-900 border border-slate-800 focus:border-purple-500 text-white outline-none appearance-none cursor-pointer"
             >
-              <option value="ALL">Semua Jenis Aksi Audit</option>
+              <option value="ALL">Semua Jenis Aksi Audit ({logs.length})</option>
+              <option value="LOGIN">Autentikasi Masuk (LOGIN)</option>
+              <option value="SYSTEM_INIT">Inisialisasi Sistem (SYSTEM_INIT)</option>
               <option value="PUNCH_IN">Presensi Masuk (PUNCH_IN)</option>
               <option value="PUNCH_OUT">Presensi Pulang (PUNCH_OUT)</option>
+              <option value="DEVICE_BIND">Pengikatan HP (DEVICE_BIND)</option>
+              <option value="DEVICE_UNBIND">Reset Pengikatan HP (DEVICE_UNBIND)</option>
+              <option value="ENROLL_FACE">Pendaftaran Biometrik Wajah (ENROLL_FACE)</option>
               <option value="BULK_EXCEL_IMPORT">Impor Massal Excel (BULK_EXCEL_IMPORT)</option>
               <option value="LEAVE_APPROVE">Persetujuan Cuti (LEAVE_APPROVE)</option>
               <option value="SHIFT_POLICY_UPDATE">Perubahan Kebijakan Shift</option>
