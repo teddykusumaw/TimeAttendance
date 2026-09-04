@@ -25,7 +25,7 @@ import { attendanceRepo } from '@/lib/attendance-repository';
 import { generateAttendanceTemplate, downloadExcelBlob } from '@/lib/excel-utils';
 
 export default function DashboardPage() {
-  const { currentUser, permissions } = useAuth();
+  const { currentUser, permissions, isLoggedIn } = useAuth();
   const [refreshKey, setRefreshKey] = useState(0);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
 
@@ -43,7 +43,13 @@ export default function DashboardPage() {
     downloadExcelBlob(buffer, 'Template_Presensi_Enterprise_Tier1.xlsx');
   };
 
+  // Guard: if unauthenticated, AppShell will redirect to /login
+  if (!isLoggedIn) {
+    return null;
+  }
+
   // Special Dedicated Employee Portal (Presensi Mandiri, Shift, & Riwayat Pribadi)
+  // Employees are immediately presented with the employee portal and cannot access the admin dashboard
   if (currentUser.role === 'EMPLOYEE') {
     return <EmployeePortal />;
   }

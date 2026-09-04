@@ -17,27 +17,58 @@ function AppShellContent({ children }: { children: React.ReactNode }) {
   const { currentUser, isLoggedIn, isAuthInitialized } = useAuth();
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
 
-  // Auto redirect to login if session is not active and not on login page
+  // Auto redirect and role-based route protection
   useEffect(() => {
-    if (isAuthInitialized && !isLoggedIn && !isLoginPage) {
-      router.push('/login');
+    if (!isAuthInitialized) return;
+
+    if (!isLoggedIn && !isLoginPage) {
+      router.replace('/login');
+      return;
     }
-  }, [isAuthInitialized, isLoggedIn, isLoginPage, router]);
+
+    if (isLoggedIn && isLoginPage) {
+      router.replace('/');
+      return;
+    }
+
+    // Role-based protection: Employees can ONLY access Employee Portal (/) and leave application (/leaves)
+    if (isLoggedIn && currentUser.role === 'EMPLOYEE') {
+      const restrictedAdminRoutes = [
+        '/attendance',
+        '/shifts',
+        '/bulk-upload',
+        '/audit-log',
+        '/settings',
+      ];
+      if (
+        restrictedAdminRoutes.some(
+          (route) => pathname === route || pathname.startsWith(`${route}/`)
+        )
+      ) {
+        router.replace('/');
+      }
+    }
+  }, [isAuthInitialized, isLoggedIn, isLoginPage, currentUser.role, pathname, router]);
 
   if (isLoginPage) {
     return <main className="min-h-screen bg-slate-950 text-slate-100">{children}</main>;
   }
 
   // Loading state during auth initialization
-  if (!isAuthInitialized && !isLoggedIn) {
+  if (!isAuthInitialized) {
     return (
-      <div className="min-h-screen bg-[#0b0f19] flex items-center justify-center text-slate-400 text-xs">
-        <div className="flex items-center gap-2">
+      <div className="min-h-screen bg-[#0b0f19] flex flex-col items-center justify-center text-slate-400 text-xs gap-3">
+        <div className="w-8 h-8 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
           <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-          <span>Memuat sesi login...</span>
         </div>
+        <span className="font-medium text-slate-300">Memverifikasi sesi aman...</span>
       </div>
     );
+  }
+
+  // Block rendering unauthenticated content while redirecting to login
+  if (!isLoggedIn) {
+    return null;
   }
 
   // Dedicated Employee Portal Layout (Clean, mobile-first, no admin sidebar)

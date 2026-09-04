@@ -3,6 +3,9 @@ import { prisma } from '@/lib/prisma';
 import { INITIAL_ATTENDANCE } from '@/lib/mock-data';
 import { AttendanceRecord, AttendanceStatus, VerificationMethod } from '@/types';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const employeeCode = searchParams.get('employeeCode');

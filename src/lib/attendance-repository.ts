@@ -74,23 +74,25 @@ class AttendanceRepository {
   public async syncWithDatabase(): Promise<void> {
     if (typeof window === 'undefined') return;
     try {
-      // 1. Fetch Users from Neon PostgreSQL
-      const usersRes = await fetch('/api/users');
+      // 1. Fetch Users from Neon PostgreSQL (with no-store for fresh state)
+      const usersRes = await fetch('/api/users', { cache: 'no-store' });
       if (usersRes.ok) {
         const json = await usersRes.json();
         if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
           this.users = json.data;
           this.syncToStorage();
+          window.dispatchEvent(new CustomEvent('users_synced', { detail: this.users }));
         }
       }
 
       // 2. Fetch Attendance Records from Neon PostgreSQL
-      const attRes = await fetch('/api/attendance');
+      const attRes = await fetch('/api/attendance', { cache: 'no-store' });
       if (attRes.ok) {
         const json = await attRes.json();
         if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
           this.attendance = json.data;
           this.syncToStorage();
+          window.dispatchEvent(new CustomEvent('attendance_updated'));
         }
       }
     } catch (e) {
@@ -561,8 +563,14 @@ class AttendanceRepository {
     this.users[idx] = updated;
     this.syncToStorage();
 
-    // Persist Device Binding to Neon PostgreSQL
     if (typeof window !== 'undefined') {
+      const activeId = localStorage.getItem('tier1_current_user_id');
+      if (activeId === userId) {
+        localStorage.setItem('tier1_current_user_data', JSON.stringify(updated));
+      }
+      window.dispatchEvent(new CustomEvent('user_updated', { detail: updated }));
+
+      // Persist Device Binding to Neon PostgreSQL
       fetch('/api/users', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -608,8 +616,14 @@ class AttendanceRepository {
     this.users[idx] = updated;
     this.syncToStorage();
 
-    // Persist Device Reset to Neon PostgreSQL
     if (typeof window !== 'undefined') {
+      const activeId = localStorage.getItem('tier1_current_user_id');
+      if (activeId === userId) {
+        localStorage.setItem('tier1_current_user_data', JSON.stringify(updated));
+      }
+      window.dispatchEvent(new CustomEvent('user_updated', { detail: updated }));
+
+      // Persist Device Reset to Neon PostgreSQL
       fetch('/api/users', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -647,8 +661,14 @@ class AttendanceRepository {
     this.users[idx] = updated;
     this.syncToStorage();
 
-    // Persist Face Photo to Neon PostgreSQL
     if (typeof window !== 'undefined') {
+      const activeId = localStorage.getItem('tier1_current_user_id');
+      if (activeId === userId) {
+        localStorage.setItem('tier1_current_user_data', JSON.stringify(updated));
+      }
+      window.dispatchEvent(new CustomEvent('user_updated', { detail: updated }));
+
+      // Persist Face Photo to Neon PostgreSQL
       fetch('/api/users', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
