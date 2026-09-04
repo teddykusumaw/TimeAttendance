@@ -24,6 +24,7 @@ import {
   Camera,
   X,
   UserCheck,
+  Fingerprint,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import LivePunchCard from '@/components/attendance/LivePunchCard';
@@ -128,6 +129,14 @@ export default function EmployeePortal() {
                     <span className="text-emerald-400">HP Terikat: {currentUser.boundDeviceName || 'Terdaftar'}</span>
                   ) : (
                     <span className="text-amber-400">HP Belum Terikat</span>
+                  )}
+                </span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 flex items-center gap-1">
+                  <Fingerprint className="w-3 h-3 text-cyan-400" />
+                  {currentUser.facePhotoUrl ? (
+                    <span className="text-emerald-400">Wajah Terdaftar</span>
+                  ) : (
+                    <span className="text-amber-400">Wajah Belum Terdaftar</span>
                   )}
                 </span>
               </div>

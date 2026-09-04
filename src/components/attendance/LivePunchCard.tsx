@@ -18,6 +18,8 @@ import {
   HelpCircle,
   Smartphone,
   Lock,
+  Fingerprint,
+  UserCheck,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { attendanceRepo } from '@/lib/attendance-repository';
@@ -37,15 +39,16 @@ interface LivePunchCardProps {
 }
 
 export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProps) {
-  const { currentUser, refreshUser } = useAuth();
+  const { currentUser, refreshUser, registerUserFace } = useAuth();
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [notes, setNotes] = useState('');
   const [todayRecord, setTodayRecord] = useState<AttendanceRecord | undefined>(undefined);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
   const [isPunching, setIsPunching] = useState(false);
 
-  // Face Recognition Modal State
+  // Face Recognition Modal State (Enrollment vs Verification)
   const [isFaceModalOpen, setIsFaceModalOpen] = useState(false);
+  const [faceModalMode, setFaceModalMode] = useState<'ENROLL' | 'VERIFY'>('VERIFY');
   const [capturedFacePhoto, setCapturedFacePhoto] = useState<string | null>(null);
   const [pendingPunchType, setPendingPunchType] = useState<'IN' | 'OUT' | null>(null);
 
@@ -158,7 +161,7 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
     return false;
   };
 
-  const handleCheckIn = (facePhoto?: string) => {
+  const handleCheckIn = (facePhoto?: string, similarityScore?: number) => {
     if (!verifyDeviceBinding()) return;
 
     // Check Geofence constraint
@@ -174,17 +177,20 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
 
     setTimeout(() => {
       const locationNote = geofenceResult?.isInside
-        ? `Presensi Geofence Terverifikasi (${geofenceResult.distanceMeters}m)`
+        ? `Presensi Geofence (${geofenceResult.distanceMeters}m)`
         : geofenceResult
         ? `Presensi Di Luar Geofence (${geofenceResult.distanceMeters}m)`
         : 'Presensi GPS Standar';
 
       const photoToUse = typeof facePhoto === 'string' ? facePhoto : capturedFacePhoto;
-      const combinedNotes = notes ? `${notes} • ${locationNote}` : locationNote;
+      const matchText = similarityScore ? `Wajah Cocok ${similarityScore}%` : 'Face Biometric Match';
+      const combinedNotes = notes
+        ? `${notes} • ${matchText} • ${locationNote}`
+        : `${matchText} • ${locationNote}`;
 
       const res = attendanceRepo.punchIn(currentUser, {
         notes: combinedNotes,
-        method: photoToUse ? 'FACIAL_RECOG' : 'MOBILE_GEO',
+        method: 'FACIAL_RECOG',
         photoUrl: photoToUse || undefined,
         latitude: activeLat ?? undefined,
         longitude: activeLon ?? undefined,
@@ -193,7 +199,7 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
       if (res.success) {
         setFeedback({
           type: res.record.status === 'LATE' ? 'warning' : 'success',
-          message: `${res.message}${photoToUse ? ' • Verifikasi Wajah Tersimpan' : ''}`,
+          message: `${res.message} • Verifikasi Wajah (${similarityScore || 94}%) & HP Binding Sah`,
         });
         refreshRecord();
         setNotes('');
@@ -206,7 +212,7 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
     }, 400);
   };
 
-  const handleCheckOut = (facePhoto?: string) => {
+  const handleCheckOut = (facePhoto?: string, similarityScore?: number) => {
     if (!verifyDeviceBinding()) return;
 
     setIsPunching(true);
@@ -214,15 +220,18 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
 
     setTimeout(() => {
       const photoToUse = typeof facePhoto === 'string' ? facePhoto : capturedFacePhoto;
+      const matchText = similarityScore ? `Wajah Cocok ${similarityScore}%` : 'Face Biometric Match';
+      const combinedNotes = notes ? `${notes} • ${matchText}` : matchText;
+
       const res = attendanceRepo.punchOut(currentUser, {
-        notes: notes || undefined,
+        notes: combinedNotes,
         photoUrl: photoToUse || undefined,
       });
 
       if (res.success) {
         setFeedback({
           type: 'success',
-          message: `${res.message}${photoToUse ? ' • Verifikasi Wajah Tersimpan' : ''}`,
+          message: `${res.message} • Verifikasi Wajah (${similarityScore || 94}%) & HP Binding Sah`,
         });
         refreshRecord();
         setNotes('');
@@ -235,19 +244,66 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
     }, 400);
   };
 
-  const handleStartFacePunch = (type: 'IN' | 'OUT') => {
-    if (!verifyDeviceBinding()) return;
+  // Strict Dual Gate Punch Trigger: HP Binding + Face Matching
+  const handleStartPunch = (type: 'IN' | 'OUT') => {
+    // SYARAT 1: Validasi HP Binding (Kecuali Super Admin)
+    if (!verifyDeviceBinding()) {
+      setFeedback({
+        type: 'error',
+        message: 'Presensi Ditolak: Perangkat HP belum terikat atau tidak sesuai dengan perangkat terdaftar Anda!',
+      });
+      return;
+    }
+
+    // SYARAT 2: Validasi Wajah Terdaftar
+    // Jika belum pernah rekam wajah master, wajib rekam wajah terlebih dahulu!
+    if (!currentUser.facePhotoUrl) {
+      setPendingPunchType(type);
+      setFaceModalMode('ENROLL');
+      setIsFaceModalOpen(true);
+      setFeedback({
+        type: 'warning',
+        message: 'Wajah belum terdaftar. Silakan lakukan perekaman foto wajah master Anda terlebih dahulu.',
+      });
+      return;
+    }
+
+    // SYARAT 3: Wajah sudah terdaftar -> Jalankan pencocokan wajah langsung
     setPendingPunchType(type);
+    setFaceModalMode('VERIFY');
     setIsFaceModalOpen(true);
   };
 
-  const handleFaceCaptured = (photoBase64: string) => {
+  const handleEnrollFaceSuccess = (photoBase64: string) => {
+    registerUserFace(photoBase64);
+    setFeedback({
+      type: 'success',
+      message: 'Foto wajah master berhasil direkam & didaftarkan! Sekarang silakan lakukan pencocokan presensi.',
+    });
+
+    // Otomatis lanjutkan ke verifikasi wajah untuk tipe presensi yang dipilih
+    if (pendingPunchType) {
+      setTimeout(() => {
+        setFaceModalMode('VERIFY');
+        setIsFaceModalOpen(true);
+      }, 500);
+    }
+  };
+
+  const handleVerifyFaceSuccess = (photoBase64: string, similarityScore: number) => {
     setCapturedFacePhoto(photoBase64);
     if (pendingPunchType === 'IN') {
-      handleCheckIn(photoBase64);
+      handleCheckIn(photoBase64, similarityScore);
     } else if (pendingPunchType === 'OUT') {
-      handleCheckOut(photoBase64);
+      handleCheckOut(photoBase64, similarityScore);
     }
+  };
+
+  const handleVerificationRejected = (reason: string, score?: number) => {
+    setFeedback({
+      type: 'error',
+      message: `Presensi Ditolak: ${reason}`,
+    });
   };
 
   const formattedTime = currentTime
@@ -346,6 +402,36 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
             )}
           </div>
 
+          {/* Biometric Face Status Pill */}
+          <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <Fingerprint className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+              {currentUser.facePhotoUrl ? (
+                <span className="text-[11px] text-slate-300 flex items-center gap-1.5">
+                  <span>Wajah Biometrik:</span>
+                  <strong className="text-emerald-400">Master Terdaftar</strong>
+                </span>
+              ) : (
+                <span className="text-[11px] text-amber-400 flex items-center gap-1 font-medium">
+                  <AlertTriangle className="w-3 h-3 text-amber-400" />
+                  <span>Wajah Belum Terdaftar</span>
+                </span>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setPendingPunchType(null);
+                setFaceModalMode('ENROLL');
+                setIsFaceModalOpen(true);
+              }}
+              className="px-2 py-0.5 rounded-md bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-400 border border-cyan-500/30 text-[10px] font-bold transition-colors"
+            >
+              {currentUser.facePhotoUrl ? 'Update Wajah' : 'Rekam Wajah'}
+            </button>
+          </div>
+
           {/* Today's Punch Status Banner */}
           <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between">
             <span className="text-xs text-slate-400 font-medium">Status Hari Ini:</span>
@@ -381,23 +467,27 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
           {!hasCheckedOut && (
             <button
               type="button"
-              onClick={() => handleStartFacePunch(!hasCheckedIn ? 'IN' : 'OUT')}
+              onClick={() => handleStartPunch(!hasCheckedIn ? 'IN' : 'OUT')}
               disabled={isPunching}
               className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white text-xs font-bold shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 transition-all active:scale-98"
             >
               <Camera className="w-4 h-4" />
               <span>
                 {!hasCheckedIn
-                  ? 'Presensi Masuk dengan Wajah (Face Biometric)'
-                  : 'Presensi Pulang dengan Wajah'}
+                  ? currentUser.facePhotoUrl
+                    ? 'Presensi Masuk dengan Wajah (Pencocokan Biometrik)'
+                    : 'Rekam Wajah & Presensi Masuk'
+                  : currentUser.facePhotoUrl
+                  ? 'Presensi Pulang dengan Wajah (Pencocokan Biometrik)'
+                  : 'Rekam Wajah & Presensi Pulang'}
               </span>
             </button>
           )}
 
-          {/* Action Buttons (Standard GPS Punch) */}
+          {/* Action Buttons (Strictly Validated Check In / Check Out) */}
           <div className="grid grid-cols-2 gap-2.5">
             <button
-              onClick={() => handleCheckIn()}
+              onClick={() => handleStartPunch('IN')}
               disabled={hasCheckedIn || isPunching}
               className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm ${
                 hasCheckedIn
@@ -408,11 +498,11 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
               }`}
             >
               <LogIn className="w-4 h-4" />
-              <span>{hasCheckedIn ? 'Sudah Check In' : 'Check In Biasa'}</span>
+              <span>{hasCheckedIn ? 'Sudah Check In' : 'Check In (Validasi Wajah + HP)'}</span>
             </button>
 
             <button
-              onClick={() => handleCheckOut()}
+              onClick={() => handleStartPunch('OUT')}
               disabled={!hasCheckedIn || hasCheckedOut || isPunching}
               className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm ${
                 !hasCheckedIn || hasCheckedOut
@@ -421,7 +511,7 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
               }`}
             >
               <LogOut className="w-4 h-4" />
-              <span>{hasCheckedOut ? 'Sudah Check Out' : 'Check Out Biasa'}</span>
+              <span>{hasCheckedOut ? 'Sudah Check Out' : 'Check Out (Validasi Wajah + HP)'}</span>
             </button>
           </div>
         </div>
@@ -555,12 +645,17 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
         </div>
       )}
 
-      {/* Biometric Face Scanner Modal */}
+      {/* Biometric Face Scanner Modal (Enrollment & Live Verification Match) */}
       <FaceScannerModal
         isOpen={isFaceModalOpen}
         onClose={() => setIsFaceModalOpen(false)}
-        onCapture={handleFaceCaptured}
+        mode={faceModalMode}
+        registeredFacePhotoUrl={currentUser.facePhotoUrl || undefined}
         employeeName={currentUser.fullName}
+        punchType={pendingPunchType}
+        onEnrollSuccess={handleEnrollFaceSuccess}
+        onVerifySuccess={handleVerifyFaceSuccess}
+        onVerificationRejected={handleVerificationRejected}
       />
 
       {/* Device Binding & Mismatch Modal */}

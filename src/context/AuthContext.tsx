@@ -16,6 +16,7 @@ interface AuthContextType {
   logout: () => void;
   bindCurrentDevice: (customName?: string) => boolean;
   resetUserDevice: (userId: string) => boolean;
+  registerUserFace: (facePhotoUrl: string) => boolean;
   refreshUser: () => void;
   allUsers: User[];
   permissions: {
@@ -163,6 +164,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return false;
   };
 
+  const registerUserFace = (facePhotoUrl: string): boolean => {
+    const updated = attendanceRepo.updateUserFace(currentUser.id, facePhotoUrl);
+    if (updated) {
+      setCurrentUser(updated);
+      return true;
+    }
+    return false;
+  };
+
   const role = currentUser.role;
   const isSuperAdmin = role === 'SUPER_ADMIN';
   const isHRAdmin = role === 'HR_ADMIN';
@@ -195,6 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         bindCurrentDevice,
         resetUserDevice,
+        registerUserFace,
         refreshUser,
         allUsers: attendanceRepo.getUsers(),
         permissions,
