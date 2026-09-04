@@ -12,7 +12,7 @@ interface AuthContextType {
   isAuthInitialized: boolean;
   switchRole: (role: Role) => void;
   switchUser: (userId: string) => void;
-  login: (identifier: string, role?: Role) => boolean;
+  login: (identifier: string, password?: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
   bindCurrentDevice: (customName?: string) => boolean;
   resetUserDevice: (userId: string) => boolean;
@@ -37,8 +37,8 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // Default fallback user (Dimas Anggara/Employee template) for type-safety before hydration
-  const [currentUser, setCurrentUser] = useState<User>(INITIAL_USERS[3]);
+  // Default user is the Super Administrator (Teddy Kusuma Wirawan)
+  const [currentUser, setCurrentUser] = useState<User>(INITIAL_USERS[0]);
   // In production, session starts as unauthenticated (false) until explicitly validated
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [isAuthInitialized, setIsAuthInitialized] = useState<boolean>(false);
@@ -91,16 +91,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Initialize session on mount
+  // Initialize session on mount
   useEffect(() => {
     try {
       const savedLoginState = localStorage.getItem('tier1_is_logged_in');
       const savedUserId = localStorage.getItem('tier1_current_user_id');
+      const cachedData = localStorage.getItem('tier1_current_user_data');
 
-      if (savedLoginState === 'true' && savedUserId) {
+      // Purge any legacy demo user from previous mock sessions
+      if (
+        savedUserId &&
+        (savedUserId.startsWith('u-') ||
+          (cachedData && (cachedData.includes('@enterprise.corp') || cachedData.includes('Alexander Bramantyo') || cachedData.includes('Dimas Anggara'))))
+      ) {
+        localStorage.removeItem('tier1_current_user_id');
+        localStorage.removeItem('tier1_current_user_data');
+        localStorage.setItem('tier1_is_logged_in', 'false');
+        setIsLoggedIn(false);
+        setCurrentUser(INITIAL_USERS[0]);
+      } else if (savedLoginState === 'true' && savedUserId) {
         setIsLoggedIn(true);
         syncCurrentUserState(savedUserId);
       } else {
-        // Not logged in or expired session
         setIsLoggedIn(false);
       }
     } catch (e) {
@@ -179,43 +191,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const login = (identifier: string, role?: Role): boolean => {
-    const cleanId = identifier.trim().toLowerCase();
-    const all = attendanceRepo.getUsers();
-
-    const found =
-      all.find(
-        (u) =>
-          u.email.toLowerCase() === cleanId ||
-          u.employeeCode.toLowerCase() === cleanId ||
-          u.id.toLowerCase() === cleanId ||
-          u.fullName.toLowerCase().includes(cleanId)
-      ) ||
-      INITIAL_USERS.find(
-        (u) =>
-          u.email.toLowerCase() === cleanId ||
-          u.employeeCode.toLowerCase() === cleanId ||
-          u.id.toLowerCase() === cleanId ||
-          u.fullName.toLowerCase().includes(cleanId)
-      );
-
-    if (found) {
-      setCurrentUser(found);
-      setIsLoggedIn(true);
-      try {
-        localStorage.setItem('tier1_is_logged_in', 'true');
-        localStorage.setItem('tier1_current_user_id', found.id);
-        localStorage.setItem('tier1_current_user_data', JSON.stringify(found));
-      } catch (e) {}
-      return true;
+  const login = async (
+    identifier: string,
+    password?: string
+  ): Promise<{ success: boolean; message?: string }> => {
+    const cleanId = identifier.trim();
+    if (!cleanId) {
+      return { success: false, message: 'Email atau NIK wajib diisi.' };
     }
 
-    if (role) {
-      switchRole(role);
-      return true;
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: cleanId, password }),
+      });
+      const json = await res.json();
+      if (res.ok && json.status === 'success' && json.data) {
+        const foundUser: User = json.data;
+        setCurrentUser(foundUser);
+        setIsLoggedIn(true);
+        try {
+          localStorage.setItem('tier1_is_logged_in', 'true');
+          localStorage.setItem('tier1_current_user_id', foundUser.id);
+          localStorage.setItem('tier1_current_user_data', JSON.stringify(foundUser));
+        } catch (e) {}
+        return { success: true };
+      }
+      return { success: false, message: json.message || 'Kredensial login tidak valid.' };
+    } catch (e: any) {
+      // Offline fallback for superuser
+      const cleanLower = cleanId.toLowerCase();
+      if (cleanLower === 'teddykusumawirawan81@gmail.com' && password === '12345678!') {
+        const foundUser = INITIAL_USERS[0];
+        setCurrentUser(foundUser);
+        setIsLoggedIn(true);
+        try {
+          localStorage.setItem('tier1_is_logged_in', 'true');
+          localStorage.setItem('tier1_current_user_id', foundUser.id);
+          localStorage.setItem('tier1_current_user_data', JSON.stringify(foundUser));
+        } catch (err) {}
+        return { success: true };
+      }
+      return { success: false, message: e.message || 'Gagal terhubung ke server autentikasi.' };
     }
-
-    return false;
   };
 
   const logout = () => {
@@ -225,9 +244,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('tier1_current_user_id');
       localStorage.removeItem('tier1_current_user_data');
     } catch (e) {}
-    // Reset to fallback employee template
-    const defaultEmp = INITIAL_USERS.find((u) => u.role === 'EMPLOYEE') || INITIAL_USERS[3];
-    setCurrentUser(defaultEmp);
+    // Reset to fallback superuser
+    setCurrentUser(INITIAL_USERS[0]);
   };
 
   const refreshUser = () => {

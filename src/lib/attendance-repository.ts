@@ -87,7 +87,11 @@ class AttendanceRepository {
       }
 
       const storedUsers = localStorage.getItem(`${STORAGE_PREFIX}users`);
-      if (storedUsers) this.users = JSON.parse(storedUsers);
+      if (storedUsers) {
+        const parsedUsers: User[] = JSON.parse(storedUsers);
+        const filtered = parsedUsers.filter((u) => !u.id.startsWith('u-') && !u.email.endsWith('@enterprise.corp'));
+        this.users = filtered.length > 0 ? filtered : [...INITIAL_USERS];
+      }
 
       const storedInvitations = localStorage.getItem(`${STORAGE_PREFIX}invitations`);
       if (storedInvitations) this.invitations = JSON.parse(storedInvitations);
