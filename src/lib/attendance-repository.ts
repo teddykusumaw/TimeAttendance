@@ -97,7 +97,28 @@ class AttendanceRepository {
       if (storedInvitations) this.invitations = JSON.parse(storedInvitations);
 
       const storedBranches = localStorage.getItem(`${STORAGE_PREFIX}branches`);
-      if (storedBranches) this.branches = JSON.parse(storedBranches);
+      if (storedBranches) {
+        const parsed = JSON.parse(storedBranches);
+        this.branches = parsed.filter((b: any) => !['b-1', 'b-2', 'b-3'].includes(b.id));
+      } else {
+        this.branches = [...INITIAL_BRANCHES];
+      }
+
+      const storedDepts = localStorage.getItem(`${STORAGE_PREFIX}departments`);
+      if (storedDepts) {
+        const parsed = JSON.parse(storedDepts);
+        this.departments = parsed.filter((d: any) => !['d-1', 'd-2', 'd-3', 'd-4', 'd-5'].includes(d.id));
+      } else {
+        this.departments = [...INITIAL_DEPARTMENTS];
+      }
+
+      const storedShifts = localStorage.getItem(`${STORAGE_PREFIX}shifts`);
+      if (storedShifts) {
+        const parsed = JSON.parse(storedShifts);
+        this.shifts = parsed.filter((s: any) => !['s-1', 's-2', 's-3', 's-4'].includes(s.id));
+      } else {
+        this.shifts = [...INITIAL_SHIFTS];
+      }
 
       this.isInitialized = true;
     } catch (e) {
@@ -108,18 +129,18 @@ class AttendanceRepository {
   public async syncWithDatabase(): Promise<void> {
     if (typeof window === 'undefined') return;
     try {
-      // 1. Fetch Users from Neon PostgreSQL (with no-store for fresh state)
+      // 1. Fetch Users from Neon PostgreSQL
       const usersRes = await fetch('/api/users', { cache: 'no-store' });
       if (usersRes.ok) {
         const json = await usersRes.json();
-        if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
+        if (json.status === 'success' && Array.isArray(json.data)) {
           this.users = json.data;
           this.syncToStorage();
           window.dispatchEvent(new CustomEvent('users_synced', { detail: this.users }));
         }
       }
 
-      // 2. Fetch Attendance Records from Neon PostgreSQL (accept empty array to clean demo)
+      // 2. Fetch Attendance Records from Neon PostgreSQL
       const attRes = await fetch('/api/attendance', { cache: 'no-store' });
       if (attRes.ok) {
         const json = await attRes.json();
@@ -145,14 +166,36 @@ class AttendanceRepository {
       const branchRes = await fetch('/api/branches', { cache: 'no-store' });
       if (branchRes.ok) {
         const json = await branchRes.json();
-        if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
+        if (json.status === 'success' && Array.isArray(json.data)) {
           this.branches = json.data;
           this.syncToStorage();
           window.dispatchEvent(new CustomEvent('branches_updated', { detail: this.branches }));
         }
       }
 
-      // 5. Fetch Audit Logs from Neon PostgreSQL
+      // 5. Fetch Departments from Neon PostgreSQL
+      const deptRes = await fetch('/api/departments', { cache: 'no-store' });
+      if (deptRes.ok) {
+        const json = await deptRes.json();
+        if (json.status === 'success' && Array.isArray(json.data)) {
+          this.departments = json.data;
+          this.syncToStorage();
+          window.dispatchEvent(new CustomEvent('departments_updated', { detail: this.departments }));
+        }
+      }
+
+      // 6. Fetch Shifts from Neon PostgreSQL
+      const shiftRes = await fetch('/api/shifts', { cache: 'no-store' });
+      if (shiftRes.ok) {
+        const json = await shiftRes.json();
+        if (json.status === 'success' && Array.isArray(json.data)) {
+          this.shifts = json.data;
+          this.syncToStorage();
+          window.dispatchEvent(new CustomEvent('shifts_updated', { detail: this.shifts }));
+        }
+      }
+
+      // 7. Fetch Audit Logs from Neon PostgreSQL
       const logsRes = await fetch('/api/audit-logs', { cache: 'no-store' });
       if (logsRes.ok) {
         const json = await logsRes.json();
@@ -177,6 +220,8 @@ class AttendanceRepository {
       localStorage.setItem(`${STORAGE_PREFIX}users`, JSON.stringify(this.users));
       localStorage.setItem(`${STORAGE_PREFIX}invitations`, JSON.stringify(this.invitations));
       localStorage.setItem(`${STORAGE_PREFIX}branches`, JSON.stringify(this.branches));
+      localStorage.setItem(`${STORAGE_PREFIX}departments`, JSON.stringify(this.departments));
+      localStorage.setItem(`${STORAGE_PREFIX}shifts`, JSON.stringify(this.shifts));
     } catch (e) {
       console.error('Failed to sync to localStorage', e);
     }
@@ -919,6 +964,192 @@ class AttendanceRepository {
 
   public getDepartments(): Department[] {
     return [...this.departments];
+  }
+
+  public async updateUser(userId: string, data: Partial<User>): Promise<User | null> {
+    const idx = this.users.findIndex((u) => u.id === userId);
+    if (idx === -1) return null;
+
+    const updated: User = {
+      ...this.users[idx],
+      ...data,
+    };
+
+    this.users[idx] = updated;
+    this.syncToStorage();
+
+    if (typeof window !== 'undefined') {
+      const activeId = localStorage.getItem('tier1_current_user_id');
+      if (activeId === userId) {
+        localStorage.setItem('tier1_current_user_data', JSON.stringify(updated));
+      }
+      window.dispatchEvent(new CustomEvent('user_updated', { detail: updated }));
+      window.dispatchEvent(new CustomEvent('users_synced', { detail: this.users }));
+
+      try {
+        const res = await fetch('/api/users', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'UPDATE_USER',
+            userId,
+            ...data,
+          }),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data) {
+            this.users[idx] = json.data;
+            this.syncToStorage();
+          }
+        }
+      } catch (e) {
+        console.warn('[Neon DB] updateUser sync error:', e);
+      }
+    }
+
+    return updated;
+  }
+
+  public async createBranch(branchData: Omit<Branch, 'id'>): Promise<Branch> {
+    const newBranch: Branch = {
+      ...branchData,
+      id: `br-${Date.now()}`,
+    };
+    this.branches.push(newBranch);
+    this.syncToStorage();
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('branches_updated', { detail: this.branches }));
+
+      try {
+        const res = await fetch('/api/branches', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(branchData),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data) {
+            const idx = this.branches.findIndex((b) => b.id === newBranch.id);
+            if (idx !== -1) this.branches[idx] = json.data;
+            this.syncToStorage();
+            return json.data;
+          }
+        }
+      } catch (e) {
+        console.warn('[Neon DB] createBranch sync error:', e);
+      }
+    }
+
+    return newBranch;
+  }
+
+  public async deleteBranch(id: string): Promise<boolean> {
+    this.branches = this.branches.filter((b) => b.id !== id);
+    this.syncToStorage();
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('branches_updated', { detail: this.branches }));
+      fetch(`/api/branches?id=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch((e) =>
+        console.warn('[Neon DB] deleteBranch error:', e)
+      );
+    }
+    return true;
+  }
+
+  public async createDepartment(deptData: Omit<Department, 'id'>): Promise<Department> {
+    const newDept: Department = {
+      ...deptData,
+      id: `dep-${Date.now()}`,
+    };
+    this.departments.push(newDept);
+    this.syncToStorage();
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('departments_updated', { detail: this.departments }));
+
+      try {
+        const res = await fetch('/api/departments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(deptData),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data) {
+            const idx = this.departments.findIndex((d) => d.id === newDept.id);
+            if (idx !== -1) this.departments[idx] = json.data;
+            this.syncToStorage();
+            return json.data;
+          }
+        }
+      } catch (e) {
+        console.warn('[Neon DB] createDepartment error:', e);
+      }
+    }
+
+    return newDept;
+  }
+
+  public async deleteDepartment(id: string): Promise<boolean> {
+    this.departments = this.departments.filter((d) => d.id !== id);
+    this.syncToStorage();
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('departments_updated', { detail: this.departments }));
+      fetch(`/api/departments?id=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch((e) =>
+        console.warn('[Neon DB] deleteDepartment error:', e)
+      );
+    }
+    return true;
+  }
+
+  public async createShift(shiftData: Omit<Shift, 'id'>): Promise<Shift> {
+    const newShift: Shift = {
+      ...shiftData,
+      id: `sh-${Date.now()}`,
+    };
+    this.shifts.push(newShift);
+    this.syncToStorage();
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('shifts_updated', { detail: this.shifts }));
+
+      try {
+        const res = await fetch('/api/shifts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(shiftData),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data) {
+            const idx = this.shifts.findIndex((s) => s.id === newShift.id);
+            if (idx !== -1) this.shifts[idx] = json.data;
+            this.syncToStorage();
+            return json.data;
+          }
+        }
+      } catch (e) {
+        console.warn('[Neon DB] createShift error:', e);
+      }
+    }
+
+    return newShift;
+  }
+
+  public async deleteShift(id: string): Promise<boolean> {
+    this.shifts = this.shifts.filter((s) => s.id !== id);
+    this.syncToStorage();
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('shifts_updated', { detail: this.shifts }));
+      fetch(`/api/shifts?id=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch((e) =>
+        console.warn('[Neon DB] deleteShift error:', e)
+      );
+    }
+    return true;
   }
 
   public getAuditLogs(): AuditLog[] {

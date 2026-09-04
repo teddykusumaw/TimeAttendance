@@ -63,8 +63,8 @@ model Department {
   id          String       @id @default(cuid())
   code        String       @unique
   name        String
-  branchId    String
-  branch      Branch       @relation(fields: [branchId], references: [id])
+  branchId    String?
+  branch      Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
   users       User[]
   invitations Invitation[]
   createdAt   DateTime     @default(now())
@@ -95,7 +95,7 @@ model User {
   passwordHash  String
   fullName      String
   role          Role               @default(EMPLOYEE)
-  jobTitle      String
+  jobTitle      String             @default("Staff Karyawan")
   avatarUrl     String?
   phone         String?
   isActive      Boolean            @default(true)
@@ -109,14 +109,14 @@ model User {
   facePhotoUrl    String?            @db.Text
   faceEnrolledAt  DateTime?
 
-  branchId      String
-  branch        Branch             @relation(fields: [branchId], references: [id])
+  branchId      String?
+  branch        Branch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
   
-  departmentId  String
-  department    Department         @relation(fields: [departmentId], references: [id])
+  departmentId  String?
+  department    Department?        @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   
   shiftId       String?
-  shift         Shift?             @relation(fields: [shiftId], references: [id])
+  shift         Shift?             @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   
   attendances   AttendanceRecord[]
   leaveRequests LeaveRequest[]
@@ -132,11 +132,11 @@ model AttendanceRecord {
   userId             String
   user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  branchId           String
-  branch             Branch             @relation(fields: [branchId], references: [id])
+  branchId           String?
+  branch             Branch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
   
   shiftId            String?
-  shift              Shift?             @relation(fields: [shiftId], references: [id])
+  shift              Shift?             @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   
   date               DateTime           @db.Date
   checkIn            DateTime?
@@ -191,16 +191,16 @@ model BulkImportBatch {
   errorCount     Int
   warningCount   Int                @default(0)
   errorSummary   String?            // JSON serialized errors
-  uploadedById   String
-  uploadedBy     User               @relation(fields: [uploadedById], references: [id])
+  uploadedById   String?
+  uploadedBy     User?              @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
   records        AttendanceRecord[]
   createdAt      DateTime           @default(now())
 }
 
 model AuditLog {
   id         String   @id @default(cuid())
-  actorId    String
-  actor      User     @relation(fields: [actorId], references: [id])
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
   action     String   // "CHECK_IN", "CHECK_OUT", "BULK_IMPORT", "LEAVE_APPROVAL", "SHIFT_UPDATE"
   entityType String   // "AttendanceRecord", "LeaveRequest", "Shift", "User"
   entityId   String?
@@ -225,14 +225,14 @@ model Invitation {
   email         String
   fullName      String
   role          Role             @default(EMPLOYEE)
-  jobTitle      String
+  jobTitle      String?          @default("Staff Karyawan")
   phone         String?
-  branchId      String
-  branch        Branch           @relation(fields: [branchId], references: [id])
-  departmentId  String
-  department    Department       @relation(fields: [departmentId], references: [id])
+  branchId      String?
+  branch        Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  departmentId  String?
+  department    Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   shiftId       String?
-  shift         Shift?           @relation(fields: [shiftId], references: [id])
+  shift         Shift?           @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   status        InvitationStatus @default(PENDING)
   invitedBy     String
   invitedByName String

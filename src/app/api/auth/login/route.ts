@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import bcrypt from 'bcryptjs';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -40,15 +41,17 @@ export async function POST(request: Request) {
       );
     }
 
-    // Password verification
-    // For superuser teddykusumawirawan81@gmail.com, enforce 12345678!
-    const isSuperuser = user.email.toLowerCase() === 'teddykusumawirawan81@gmail.com';
+    // Password verification using Bcrypt
     let passwordValid = false;
-
-    if (isSuperuser) {
-      passwordValid = password === '12345678!' || password === user.passwordHash;
+    if (
+      user.passwordHash.startsWith('$2a$') ||
+      user.passwordHash.startsWith('$2b$') ||
+      user.passwordHash.startsWith('$2y$')
+    ) {
+      passwordValid = await bcrypt.compare(password, user.passwordHash);
     } else {
-      passwordValid = password === user.passwordHash || password === '12345678!' || password === 'password123';
+      // Fallback for legacy plain text passwords if any
+      passwordValid = password === user.passwordHash;
     }
 
     if (!passwordValid) {
@@ -70,11 +73,11 @@ export async function POST(request: Request) {
       phone: user.phone,
       isActive: user.isActive,
       branchId: user.branchId,
-      branchName: user.branch?.name || 'Headquarter Sudirman',
+      branchName: user.branch?.name || undefined,
       departmentId: user.departmentId,
-      departmentName: user.department?.name || 'Executive & Management',
+      departmentName: user.department?.name || undefined,
       shiftId: user.shiftId,
-      shiftName: user.shift?.name || 'Standard Office',
+      shiftName: user.shift?.name || undefined,
       boundDeviceId: user.boundDeviceId || undefined,
       boundDeviceName: user.boundDeviceName || undefined,
       boundDeviceAt: user.boundDeviceAt ? user.boundDeviceAt.toISOString() : undefined,

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  UserPlus,
+  UserCheck,
   X,
   Building2,
   Briefcase,
@@ -13,103 +13,98 @@ import {
   Clock,
   Shield,
   Layers,
-  Sparkles,
+  Save,
   RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { attendanceRepo } from '@/lib/attendance-repository';
-import { Role } from '@/types';
+import { User, Role } from '@/types';
 
-interface AddEmployeeModalProps {
+interface EditEmployeeModalProps {
+  user: User | null;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export default function AddEmployeeModal({
+export default function EditEmployeeModal({
+  user,
   isOpen,
   onClose,
   onSuccess,
-}: AddEmployeeModalProps) {
+}: EditEmployeeModalProps) {
   const { currentUser } = useAuth();
   const branches = attendanceRepo.getBranches();
   const departments = attendanceRepo.getDepartments();
   const shifts = attendanceRepo.getShifts();
 
   const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
   const [employeeCode, setEmployeeCode] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<Role>('EMPLOYEE');
-  const [branchId, setBranchId] = useState(branches[0]?.id || '');
-  const [departmentId, setDepartmentId] = useState(departments[0]?.id || '');
-  const [shiftId, setShiftId] = useState(shifts[0]?.id || '');
+  const [branchId, setBranchId] = useState('');
+  const [departmentId, setDepartmentId] = useState('');
+  const [shiftId, setShiftId] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Auto-generate employee code suggestion on modal open
   useEffect(() => {
-    if (isOpen) {
+    if (user && isOpen) {
+      setFullName(user.fullName || '');
+      setEmployeeCode(user.employeeCode || '');
+      setJobTitle(user.jobTitle || '');
+      setPhone(user.phone || '');
+      setRole(user.role || 'EMPLOYEE');
+      setBranchId(user.branchId || '');
+      setDepartmentId(user.departmentId || '');
+      setShiftId(user.shiftId || '');
       setErrorMsg(null);
       setSuccessMsg(null);
-      const existing = attendanceRepo.getUsers();
-      const nextNum = existing.length + 1;
-      setEmployeeCode(`EMP-${String(nextNum).padStart(4, '0')}`);
-      if (branches.length > 0 && !branchId) setBranchId(branches[0].id);
-      if (departments.length > 0 && !departmentId) setDepartmentId(departments[0].id);
-      if (shifts.length > 0 && !shiftId) setShiftId(shifts[0].id);
     }
-  }, [isOpen]);
+  }, [user, isOpen]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !user) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    if (!fullName.trim() || !email.trim() || !employeeCode.trim()) {
-      setErrorMsg('Nama lengkap, email, dan NIK wajib diisi.');
+    if (!fullName.trim()) {
+      setErrorMsg('Nama lengkap karyawan wajib diisi.');
       return;
     }
 
     setLoading(true);
     try {
-      await attendanceRepo.createEmployee({
-        employeeCode: employeeCode.trim(),
-        email: email.trim().toLowerCase(),
+      const branchObj = branches.find((b) => b.id === branchId);
+      const deptObj = departments.find((d) => d.id === departmentId);
+      const shiftObj = shifts.find((s) => s.id === shiftId);
+
+      await attendanceRepo.updateUser(user.id, {
         fullName: fullName.trim(),
-        role,
+        employeeCode: employeeCode.trim() || user.employeeCode,
         jobTitle: jobTitle.trim() || 'Staff Karyawan',
-        phone: phone.trim() || undefined,
+        phone: phone.trim() || null,
+        role,
         branchId: branchId || null,
+        branchName: branchObj?.name,
         departmentId: departmentId || null,
+        departmentName: deptObj?.name,
         shiftId: shiftId || null,
-        actor: {
-          id: currentUser.id,
-          name: currentUser.fullName,
-          role: currentUser.role,
-        },
+        shiftName: shiftObj?.name,
       });
 
-      setSuccessMsg(`Karyawan ${fullName} (${employeeCode}) berhasil ditambahkan.`);
+      setSuccessMsg(`Data karyawan ${fullName} berhasil diperbarui di database Neon.`);
       setTimeout(() => {
         onSuccess();
         onClose();
-        // Reset form
-        setFullName('');
-        setEmail('');
-        setJobTitle('');
-        setPhone('');
-        setBranchId('');
-        setDepartmentId('');
-        setShiftId('');
-      }, 1000);
+      }, 900);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Gagal menambahkan karyawan.');
+      setErrorMsg(err.message || 'Gagal memperbarui data karyawan.');
     } finally {
       setLoading(false);
     }
@@ -122,17 +117,17 @@ export default function AddEmployeeModal({
         <div className="flex items-center justify-between pb-5 border-b border-slate-800">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center border border-blue-500/20">
-              <UserPlus className="w-5 h-5" />
+              <UserCheck className="w-5 h-5" />
             </div>
             <div>
               <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <span>Tambah Karyawan Manual</span>
+                <span>Lengkapi & Perbarui Data Karyawan</span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                  Tier-1 Admin
+                  Manual Editing
                 </span>
               </h3>
               <p className="text-xs text-slate-400">
-                Pendaftaran data karyawan baru secara langsung ke database Neon PostgreSQL.
+                Lengkapi cabang, departemen, shift, atau data kontak karyawan di Neon PostgreSQL.
               </p>
             </div>
           </div>
@@ -165,14 +160,12 @@ export default function AddEmployeeModal({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                NIK / Kode Karyawan <span className="text-rose-400">*</span>
+                NIK / Kode Karyawan
               </label>
               <input
                 type="text"
-                required
                 value={employeeCode}
                 onChange={(e) => setEmployeeCode(e.target.value)}
-                placeholder="EMP-0009"
                 className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white font-mono text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/40"
               />
             </div>
@@ -186,27 +179,24 @@ export default function AddEmployeeModal({
                 required
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="Contoh: Eko Prasetyo"
                 className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/40"
               />
             </div>
           </div>
 
-          {/* Row 2: Email & Phone */}
+          {/* Row 2: Email (Readonly) & Phone */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Email Perusahaan <span className="text-rose-400">*</span>
+                Email Terdaftar
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                 <input
                   type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="eko.prasetyo@enterprise.corp"
-                  className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                  disabled
+                  value={user.email}
+                  className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-slate-400 text-xs cursor-not-allowed"
                 />
               </div>
             </div>
@@ -228,7 +218,7 @@ export default function AddEmployeeModal({
             </div>
           </div>
 
-          {/* Row 3: Posisi / Job Title & Role */}
+          {/* Row 3: Posisi & Role */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
@@ -279,7 +269,7 @@ export default function AddEmployeeModal({
                   onChange={(e) => setBranchId(e.target.value)}
                   className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
-                  <option value="">-- Belum Ditentukan (Diisi Nanti) --</option>
+                  <option value="">-- Belum Ditentukan --</option>
                   {branches.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
@@ -300,7 +290,7 @@ export default function AddEmployeeModal({
                   onChange={(e) => setDepartmentId(e.target.value)}
                   className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
-                  <option value="">-- Belum Ditentukan (Diisi Nanti) --</option>
+                  <option value="">-- Belum Ditentukan --</option>
                   {departments.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.name}
@@ -321,7 +311,7 @@ export default function AddEmployeeModal({
                   onChange={(e) => setShiftId(e.target.value)}
                   className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
-                  <option value="">-- Belum Ditentukan (Diisi Nanti) --</option>
+                  <option value="">-- Belum Ditentukan --</option>
                   {shifts.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
@@ -332,15 +322,7 @@ export default function AddEmployeeModal({
             </div>
           </div>
 
-          <div className="p-3.5 rounded-2xl bg-blue-500/5 border border-blue-500/10 text-slate-400 text-xs flex items-start gap-2.5">
-            <Sparkles className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-            <span>
-              Karyawan baru akan langsung dapat login menggunakan NIK atau Email yang didaftarkan. Pengikatan HP dan perekaman biometrik wajah akan dilakukan secara mandiri saat presensi pertama.
-            </span>
-          </div>
-
-          {/* Modal Footer */}
-          <div className="pt-4 border-t border-slate-800/80 flex items-center justify-end gap-3">
+          <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-800">
             <button
               type="button"
               onClick={onClose}
@@ -351,7 +333,7 @@ export default function AddEmployeeModal({
             <button
               type="submit"
               disabled={loading}
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-blue-500/20 disabled:opacity-50 transition-all"
+              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-blue-500/20 disabled:opacity-50 transition-all"
             >
               {loading ? (
                 <>
@@ -360,8 +342,8 @@ export default function AddEmployeeModal({
                 </>
               ) : (
                 <>
-                  <UserPlus className="w-4 h-4" />
-                  <span>Daftarkan Karyawan</span>
+                  <Save className="w-4 h-4" />
+                  <span>Simpan Perubahan</span>
                 </>
               )}
             </button>

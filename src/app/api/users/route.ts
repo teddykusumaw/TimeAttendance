@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { INITIAL_USERS } from '@/lib/mock-data';
+import bcrypt from 'bcryptjs';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -28,9 +29,9 @@ export async function GET() {
         phone: u.phone,
         isActive: u.isActive,
         branchId: u.branchId,
-        branchName: u.branch.name,
+        branchName: u.branch?.name,
         departmentId: u.departmentId,
-        departmentName: u.department.name,
+        departmentName: u.department?.name,
         shiftId: u.shiftId,
         shiftName: u.shift?.name || undefined,
         boundDeviceId: u.boundDeviceId || undefined,
@@ -75,7 +76,71 @@ export async function PATCH(request: Request) {
       );
     }
 
-    if (action === 'BIND_DEVICE') {
+    if (action === 'UPDATE_USER') {
+      const {
+        fullName,
+        phone,
+        role,
+        jobTitle,
+        employeeCode,
+        branchId,
+        departmentId,
+        shiftId,
+        isActive,
+      } = body;
+
+      const updateData: any = {};
+      if (fullName !== undefined) updateData.fullName = fullName.trim();
+      if (phone !== undefined) updateData.phone = phone?.trim() || null;
+      if (role !== undefined) updateData.role = role;
+      if (jobTitle !== undefined) updateData.jobTitle = jobTitle?.trim();
+      if (employeeCode !== undefined) updateData.employeeCode = employeeCode?.trim();
+      if (branchId !== undefined) updateData.branchId = branchId || null;
+      if (departmentId !== undefined) updateData.departmentId = departmentId || null;
+      if (shiftId !== undefined) updateData.shiftId = shiftId || null;
+      if (isActive !== undefined) updateData.isActive = Boolean(isActive);
+
+      const updated = await prisma.user.update({
+        where: { id: userId },
+        data: updateData,
+        include: { branch: true, department: true, shift: true },
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          actorId: actor?.id || userId,
+          action: 'UPDATE_USER',
+          entityType: 'User',
+          entityId: userId,
+          details: `Pembaruan data profil karyawan ${updated.fullName} (${updated.employeeCode})`,
+        },
+      });
+
+      return NextResponse.json({
+        status: 'success',
+        message: `Data karyawan ${updated.fullName} berhasil diperbarui di database.`,
+        data: {
+          id: updated.id,
+          employeeCode: updated.employeeCode,
+          email: updated.email,
+          fullName: updated.fullName,
+          role: updated.role,
+          jobTitle: updated.jobTitle,
+          avatarUrl: updated.avatarUrl,
+          phone: updated.phone,
+          isActive: updated.isActive,
+          branchId: updated.branchId,
+          branchName: updated.branch?.name,
+          departmentId: updated.departmentId,
+          departmentName: updated.department?.name,
+          shiftId: updated.shiftId,
+          shiftName: updated.shift?.name,
+          boundDeviceId: updated.boundDeviceId,
+          boundDeviceName: updated.boundDeviceName,
+          facePhotoUrl: updated.facePhotoUrl,
+        },
+      });
+    } else if (action === 'BIND_DEVICE') {
       const updated = await prisma.user.update({
         where: { id: userId },
         data: {
@@ -187,19 +252,21 @@ export async function POST(request: Request) {
       actor,
     } = body;
 
-    if (!employeeCode || !email || !fullName || !branchId || !departmentId) {
+    if (!email || !fullName) {
       return NextResponse.json(
-        { status: 'error', message: 'Kolom NIK, email, nama lengkap, cabang, dan departemen wajib diisi.' },
+        { status: 'error', message: 'Email dan nama lengkap wajib diisi.' },
         { status: 400 }
       );
     }
 
-    // Check duplicate employeeCode or email
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Check duplicate email
     const existing = await prisma.user.findFirst({
       where: {
         OR: [
-          { employeeCode: employeeCode.trim() },
-          { email: email.trim().toLowerCase() },
+          ...(employeeCode ? [{ employeeCode: employeeCode.trim() }] : []),
+          { email: cleanEmail },
         ],
       },
     });
@@ -209,31 +276,48 @@ export async function POST(request: Request) {
         {
           status: 'error',
           message:
-            existing.employeeCode === employeeCode.trim()
-              ? `NIK / Kode Karyawan "${employeeCode}" sudah terdaftar.`
-              : `Email "${email}" sudah digunakan oleh karyawan lain.`,
+            existing.email === cleanEmail
+              ? `Email "${email}" sudah digunakan oleh karyawan lain.`
+              : `NIK / Kode Karyawan "${employeeCode}" sudah terdaftar.`,
         },
         { status: 409 }
       );
+    }
+
+    // Auto-generate employeeCode if not provided
+    let finalCode = employeeCode?.trim();
+    if (!finalCode) {
+      const count = await prisma.user.count();
+      finalCode = `EMP-${String(count + 1).padStart(4, '0')}`;
+      let exists = await prisma.user.findUnique({ where: { employeeCode: finalCode } });
+      let counter = count + 1;
+      while (exists) {
+        counter++;
+        finalCode = `EMP-${String(counter).padStart(4, '0')}`;
+        exists = await prisma.user.findUnique({ where: { employeeCode: finalCode } });
+      }
     }
 
     const defaultAvatar =
       avatarUrl ||
       `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`;
 
+    const salt = bcrypt.genSaltSync(10);
+    const passwordHash = bcrypt.hashSync('12345678!', salt);
+
     const newUser = await prisma.user.create({
       data: {
-        employeeCode: employeeCode.trim(),
-        email: email.trim().toLowerCase(),
-        passwordHash: 'argon2_default_hash',
+        employeeCode: finalCode,
+        email: cleanEmail,
+        passwordHash,
         fullName: fullName.trim(),
         role: role || 'EMPLOYEE',
         jobTitle: jobTitle?.trim() || 'Staff Karyawan',
         avatarUrl: defaultAvatar,
         phone: phone?.trim() || null,
         isActive: true,
-        branchId,
-        departmentId,
+        branchId: branchId || null,
+        departmentId: departmentId || null,
         shiftId: shiftId || null,
       },
       include: {
@@ -264,9 +348,9 @@ export async function POST(request: Request) {
       phone: newUser.phone,
       isActive: newUser.isActive,
       branchId: newUser.branchId,
-      branchName: newUser.branch.name,
+      branchName: newUser.branch?.name,
       departmentId: newUser.departmentId,
-      departmentName: newUser.department.name,
+      departmentName: newUser.department?.name,
       shiftId: newUser.shiftId,
       shiftName: newUser.shift?.name || undefined,
       boundDeviceId: newUser.boundDeviceId || undefined,

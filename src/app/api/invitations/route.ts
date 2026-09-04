@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -50,9 +51,9 @@ export async function GET(request: Request) {
           jobTitle: invitation.jobTitle,
           phone: invitation.phone,
           branchId: invitation.branchId,
-          branchName: invitation.branch.name,
+          branchName: invitation.branch?.name,
           departmentId: invitation.departmentId,
-          departmentName: invitation.department.name,
+          departmentName: invitation.department?.name,
           shiftId: invitation.shiftId,
           shiftName: invitation.shift?.name,
           status: invitation.status,
@@ -82,9 +83,9 @@ export async function GET(request: Request) {
       jobTitle: inv.jobTitle,
       phone: inv.phone,
       branchId: inv.branchId,
-      branchName: inv.branch.name,
+      branchName: inv.branch?.name,
       departmentId: inv.departmentId,
-      departmentName: inv.department.name,
+      departmentName: inv.department?.name,
       shiftId: inv.shiftId,
       shiftName: inv.shift?.name,
       status: inv.status,
@@ -124,29 +125,57 @@ export async function POST(request: Request) {
       invitedByName,
     } = body;
 
-    if (!email || !fullName || !branchId || !departmentId) {
+    if (!email || !fullName) {
       return NextResponse.json(
-        { status: 'error', message: 'Email, Nama Lengkap, Cabang, dan Departemen wajib diisi.' },
+        { status: 'error', message: 'Email dan Nama Lengkap calon karyawan wajib diisi.' },
         { status: 400 }
       );
     }
 
-    // Check if user already exists with this email
-    const existingUser = await prisma.user.findUnique({
-      where: { email: email.trim().toLowerCase() },
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Check if user already exists in DB
+    let userRecord = await prisma.user.findUnique({
+      where: { email: cleanEmail },
     });
 
-    if (existingUser) {
-      return NextResponse.json(
-        { status: 'error', message: `Pengguna dengan email "${email}" sudah aktif terdaftar.` },
-        { status: 409 }
-      );
+    // If user does not exist in database, automatically create user record as requested!
+    if (!userRecord) {
+      const totalUsers = await prisma.user.count();
+      let finalEmployeeCode = `EMP-${String(totalUsers + 1).padStart(4, '0')}`;
+      let existingCode = await prisma.user.findUnique({ where: { employeeCode: finalEmployeeCode } });
+      let counter = totalUsers + 1;
+      while (existingCode) {
+        counter++;
+        finalEmployeeCode = `EMP-${String(counter).padStart(4, '0')}`;
+        existingCode = await prisma.user.findUnique({ where: { employeeCode: finalEmployeeCode } });
+      }
+
+      const salt = bcrypt.genSaltSync(10);
+      const initialPasswordHash = bcrypt.hashSync('12345678!', salt);
+
+      userRecord = await prisma.user.create({
+        data: {
+          employeeCode: finalEmployeeCode,
+          email: cleanEmail,
+          fullName: fullName.trim(),
+          role: role || 'EMPLOYEE',
+          jobTitle: jobTitle?.trim() || 'Staff Karyawan',
+          phone: phone?.trim() || null,
+          passwordHash: initialPasswordHash,
+          branchId: branchId || null,
+          departmentId: departmentId || null,
+          shiftId: shiftId || null,
+          avatarUrl: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
+          isActive: true,
+        },
+      });
     }
 
     // Check if there is already a pending invitation for this email
     const existingInv = await prisma.invitation.findFirst({
       where: {
-        email: email.trim().toLowerCase(),
+        email: cleanEmail,
         status: 'PENDING',
         expiresAt: { gt: new Date() },
       },
@@ -174,13 +203,13 @@ export async function POST(request: Request) {
     const newInvitation = await prisma.invitation.create({
       data: {
         token,
-        email: email.trim().toLowerCase(),
+        email: cleanEmail,
         fullName: fullName.trim(),
         role: role || 'EMPLOYEE',
         jobTitle: jobTitle?.trim() || 'Staff Karyawan',
         phone: phone?.trim() || null,
-        branchId,
-        departmentId,
+        branchId: branchId || null,
+        departmentId: departmentId || null,
         shiftId: shiftId || null,
         status: 'PENDING',
         invitedBy: invitedBy || 'system-hr',
@@ -196,19 +225,22 @@ export async function POST(request: Request) {
 
     await prisma.auditLog.create({
       data: {
-        actorId: invitedBy || 'system-hr',
+        actorId: invitedBy || userRecord.id,
         action: 'INVITATION_CREATED',
         entityType: 'Invitation',
         entityId: newInvitation.id,
-        details: `Undangan onboarding karyawan dibuat untuk: ${fullName} (${email}) sebagai ${jobTitle}`,
+        details: `Undangan onboarding karyawan dibuat untuk: ${fullName} (${cleanEmail}) sebagai ${jobTitle || 'Staff Karyawan'}`,
       },
     });
 
     return NextResponse.json({
       status: 'success',
-      message: `Undangan untuk ${fullName} berhasil dibuat.`,
+      message: `Undangan untuk ${fullName} berhasil dibuat dan data user otomatis terdaftar di database.`,
       data: {
         ...newInvitation,
+        branchName: newInvitation.branch?.name,
+        departmentName: newInvitation.department?.name,
+        shiftName: newInvitation.shift?.name,
         expiresAt: newInvitation.expiresAt.toISOString(),
         createdAt: newInvitation.createdAt.toISOString(),
       },
@@ -265,46 +297,61 @@ export async function PATCH(request: Request) {
         );
       }
 
-      // Generate next available EMP-XXXX code if not provided
-      let finalEmployeeCode = customEmployeeCode?.trim();
-      if (!finalEmployeeCode) {
-        const totalUsers = await prisma.user.count();
-        finalEmployeeCode = `EMP-${String(totalUsers + 1).padStart(4, '0')}`;
-        // Ensure uniqueness
-        let existingUserWithCode = await prisma.user.findUnique({ where: { employeeCode: finalEmployeeCode } });
-        let counter = totalUsers + 1;
-        while (existingUserWithCode) {
-          counter++;
-          finalEmployeeCode = `EMP-${String(counter).padStart(4, '0')}`;
-          existingUserWithCode = await prisma.user.findUnique({ where: { employeeCode: finalEmployeeCode } });
-        }
-      }
-
       const finalName = fullName?.trim() || inv.fullName;
       const finalPhone = phone?.trim() || inv.phone;
 
-      // Create new active User in Neon PostgreSQL
-      const newUser = await prisma.user.create({
-        data: {
-          employeeCode: finalEmployeeCode,
-          email: inv.email,
-          fullName: finalName,
-          passwordHash: 'argon2_default_hash',
-          role: inv.role,
-          jobTitle: inv.jobTitle,
-          phone: finalPhone,
-          branchId: inv.branchId,
-          departmentId: inv.departmentId,
-          shiftId: inv.shiftId,
-          avatarUrl: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
-          isActive: true,
-        },
-        include: {
-          branch: true,
-          department: true,
-          shift: true,
-        },
+      // Find or create User in Neon PostgreSQL
+      let activeUser = await prisma.user.findUnique({
+        where: { email: inv.email },
+        include: { branch: true, department: true, shift: true },
       });
+
+      if (activeUser) {
+        activeUser = await prisma.user.update({
+          where: { id: activeUser.id },
+          data: {
+            fullName: finalName,
+            phone: finalPhone || activeUser.phone,
+            employeeCode: customEmployeeCode?.trim() || activeUser.employeeCode,
+            branchId: inv.branchId || activeUser.branchId,
+            departmentId: inv.departmentId || activeUser.departmentId,
+            shiftId: inv.shiftId || activeUser.shiftId,
+            isActive: true,
+          },
+          include: { branch: true, department: true, shift: true },
+        });
+      } else {
+        const totalUsers = await prisma.user.count();
+        let finalEmployeeCode = customEmployeeCode?.trim() || `EMP-${String(totalUsers + 1).padStart(4, '0')}`;
+        let existingCode = await prisma.user.findUnique({ where: { employeeCode: finalEmployeeCode } });
+        let counter = totalUsers + 1;
+        while (existingCode) {
+          counter++;
+          finalEmployeeCode = `EMP-${String(counter).padStart(4, '0')}`;
+          existingCode = await prisma.user.findUnique({ where: { employeeCode: finalEmployeeCode } });
+        }
+
+        const salt = bcrypt.genSaltSync(10);
+        const initialPasswordHash = bcrypt.hashSync('12345678!', salt);
+
+        activeUser = await prisma.user.create({
+          data: {
+            employeeCode: finalEmployeeCode,
+            email: inv.email,
+            fullName: finalName,
+            passwordHash: initialPasswordHash,
+            role: inv.role,
+            jobTitle: inv.jobTitle || 'Staff Karyawan',
+            phone: finalPhone,
+            branchId: inv.branchId || null,
+            departmentId: inv.departmentId || null,
+            shiftId: inv.shiftId || null,
+            avatarUrl: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
+            isActive: true,
+          },
+          include: { branch: true, department: true, shift: true },
+        });
+      }
 
       // Mark invitation as ACCEPTED
       await prisma.invitation.update({
@@ -318,35 +365,35 @@ export async function PATCH(request: Request) {
       // Audit Log
       await prisma.auditLog.create({
         data: {
-          actorId: newUser.id,
+          actorId: activeUser.id,
           action: 'INVITATION_ACCEPTED',
           entityType: 'User',
-          entityId: newUser.id,
-          details: `Undangan onboard berhasil diterima oleh: ${newUser.fullName} (${newUser.employeeCode}) via token ${token.slice(0, 10)}...`,
+          entityId: activeUser.id,
+          details: `Undangan onboard berhasil diterima oleh: ${activeUser.fullName} (${activeUser.employeeCode}) via token ${token.slice(0, 10)}...`,
         },
       });
 
       const mappedUser = {
-        id: newUser.id,
-        employeeCode: newUser.employeeCode,
-        email: newUser.email,
-        fullName: newUser.fullName,
-        role: newUser.role,
-        jobTitle: newUser.jobTitle,
-        avatarUrl: newUser.avatarUrl,
-        phone: newUser.phone,
-        isActive: newUser.isActive,
-        branchId: newUser.branchId,
-        branchName: newUser.branch.name,
-        departmentId: newUser.departmentId,
-        departmentName: newUser.department.name,
-        shiftId: newUser.shiftId,
-        shiftName: newUser.shift?.name || undefined,
+        id: activeUser.id,
+        employeeCode: activeUser.employeeCode,
+        email: activeUser.email,
+        fullName: activeUser.fullName,
+        role: activeUser.role,
+        jobTitle: activeUser.jobTitle,
+        avatarUrl: activeUser.avatarUrl,
+        phone: activeUser.phone,
+        isActive: activeUser.isActive,
+        branchId: activeUser.branchId,
+        branchName: activeUser.branch?.name,
+        departmentId: activeUser.departmentId,
+        departmentName: activeUser.department?.name,
+        shiftId: activeUser.shiftId,
+        shiftName: activeUser.shift?.name,
       };
 
       return NextResponse.json({
         status: 'success',
-        message: `Selamat bergabung, ${newUser.fullName}! Akun Anda telah berhasil diaktivasi.`,
+        message: `Selamat bergabung, ${activeUser.fullName}! Akun Anda telah berhasil diaktivasi.`,
         data: mappedUser,
       });
     } else if (action === 'REVOKE') {

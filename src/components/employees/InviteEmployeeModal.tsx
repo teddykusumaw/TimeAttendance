@@ -249,6 +249,7 @@ export default function InviteEmployeeModal({
                     onChange={(e) => setBranchId(e.target.value)}
                     className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                   >
+                    <option value="">-- Belum Ditentukan (Diisi Nanti) --</option>
                     {branches.map((b) => (
                       <option key={b.id} value={b.id}>
                         {b.name}
@@ -266,6 +267,7 @@ export default function InviteEmployeeModal({
                     onChange={(e) => setDepartmentId(e.target.value)}
                     className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                   >
+                    <option value="">-- Belum Ditentukan (Diisi Nanti) --</option>
                     {departments.map((d) => (
                       <option key={d.id} value={d.id}>
                         {d.name}
@@ -283,6 +285,7 @@ export default function InviteEmployeeModal({
                     onChange={(e) => setShiftId(e.target.value)}
                     className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                   >
+                    <option value="">-- Belum Ditentukan (Diisi Nanti) --</option>
                     {shifts.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}

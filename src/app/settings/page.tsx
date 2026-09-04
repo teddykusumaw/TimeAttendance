@@ -22,6 +22,9 @@ import {
   Unlock,
   Info,
   Trash2,
+  Building2,
+  Plus,
+  Layers,
 } from 'lucide-react';
 import RoleGuard from '@/components/auth/RoleGuard';
 import { GeocodeAddress, reverseGeocode } from '@/lib/geo-utils';
@@ -34,6 +37,20 @@ export default function SettingsPage() {
   const [deviceSearch, setDeviceSearch] = useState('');
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [usersList, setUsersList] = useState(attendanceRepo.getUsers());
+  const [branchesList, setBranchesList] = useState(attendanceRepo.getBranches());
+  const [departmentsList, setDepartmentsList] = useState(attendanceRepo.getDepartments());
+
+  // Branch creation form state
+  const [newBranchName, setNewBranchName] = useState('');
+  const [newBranchCity, setNewBranchCity] = useState('');
+  const [newBranchRadius, setNewBranchRadius] = useState(200);
+
+  // Department creation form state
+  const [newDeptName, setNewDeptName] = useState('');
+  const [newDeptCode, setNewDeptCode] = useState('');
+  const [newDeptBranchId, setNewDeptBranchId] = useState('');
+
+  const [masterStatus, setMasterStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const handleResetDevice = (userId: string, userName: string) => {
     const confirmReset = confirm(
@@ -145,20 +162,47 @@ export default function SettingsPage() {
     );
   };
 
+  useEffect(() => {
+    const handleBranchesUpdated = (e: any) => {
+      if (e.detail) setBranchesList(e.detail);
+      else setBranchesList(attendanceRepo.getBranches());
+    };
+    const handleDepartmentsUpdated = (e: any) => {
+      if (e.detail) setDepartmentsList(e.detail);
+      else setDepartmentsList(attendanceRepo.getDepartments());
+    };
+    window.addEventListener('branches_updated', handleBranchesUpdated);
+    window.addEventListener('departments_updated', handleDepartmentsUpdated);
+    return () => {
+      window.removeEventListener('branches_updated', handleBranchesUpdated);
+      window.removeEventListener('departments_updated', handleDepartmentsUpdated);
+    };
+  }, []);
+
   const handleSaveSettings = async () => {
     setIsSaving(true);
     setSaveStatus(null);
     try {
       const branches = attendanceRepo.getBranches();
-      const primaryId = branches[0]?.id || 'b-1';
-
-      await attendanceRepo.updateBranch(primaryId, {
-        name: companyName,
-        timezone,
-        radiusMeters: geofenceRadius,
-        latitude: officeLat,
-        longitude: officeLon,
-      });
+      if (branches.length === 0) {
+        await attendanceRepo.createBranch({
+          name: companyName,
+          code: 'HQ-MAIN',
+          city: officeAddress?.city || 'Jakarta Pusat',
+          timezone,
+          radiusMeters: geofenceRadius,
+          latitude: officeLat,
+          longitude: officeLon,
+        });
+      } else {
+        await attendanceRepo.updateBranch(branches[0].id, {
+          name: companyName,
+          timezone,
+          radiusMeters: geofenceRadius,
+          latitude: officeLat,
+          longitude: officeLon,
+        });
+      }
 
       localStorage.setItem(
         'tier1_office_settings',
@@ -178,6 +222,66 @@ export default function SettingsPage() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleCreateBranch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBranchName.trim() || !newBranchCity.trim()) return;
+
+    try {
+      await attendanceRepo.createBranch({
+        name: newBranchName.trim(),
+        code: `BR-${newBranchCity.slice(0, 3).toUpperCase()}-${Date.now().toString().slice(-2)}`,
+        city: newBranchCity.trim(),
+        timezone,
+        radiusMeters: Number(newBranchRadius) || 200,
+        latitude: officeLat,
+        longitude: officeLon,
+      });
+      setBranchesList(attendanceRepo.getBranches());
+      setNewBranchName('');
+      setNewBranchCity('');
+      setMasterStatus({ type: 'success', text: 'Cabang baru berhasil dibuat di database Neon.' });
+      setTimeout(() => setMasterStatus(null), 4000);
+    } catch (err: any) {
+      setMasterStatus({ type: 'error', text: err.message || 'Gagal membuat cabang.' });
+    }
+  };
+
+  const handleDeleteBranch = async (id: string, name: string) => {
+    if (!confirm(`Hapus cabang "${name}" dari database?`)) return;
+    await attendanceRepo.deleteBranch(id);
+    setBranchesList(attendanceRepo.getBranches());
+    setMasterStatus({ type: 'success', text: `Cabang "${name}" berhasil dihapus.` });
+    setTimeout(() => setMasterStatus(null), 4000);
+  };
+
+  const handleCreateDepartment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDeptName.trim()) return;
+
+    try {
+      await attendanceRepo.createDepartment({
+        name: newDeptName.trim(),
+        code: newDeptCode.trim() || `DEP-${newDeptName.slice(0, 3).toUpperCase()}`,
+        branchId: newDeptBranchId || null,
+      });
+      setDepartmentsList(attendanceRepo.getDepartments());
+      setNewDeptName('');
+      setNewDeptCode('');
+      setMasterStatus({ type: 'success', text: 'Departemen baru berhasil dibuat di database Neon.' });
+      setTimeout(() => setMasterStatus(null), 4000);
+    } catch (err: any) {
+      setMasterStatus({ type: 'error', text: err.message || 'Gagal membuat departemen.' });
+    }
+  };
+
+  const handleDeleteDepartment = async (id: string, name: string) => {
+    if (!confirm(`Hapus departemen "${name}" dari database?`)) return;
+    await attendanceRepo.deleteDepartment(id);
+    setDepartmentsList(attendanceRepo.getDepartments());
+    setMasterStatus({ type: 'success', text: `Departemen "${name}" berhasil dihapus.` });
+    setTimeout(() => setMasterStatus(null), 4000);
   };
 
   const handleClearDemoData = async () => {
@@ -482,6 +586,230 @@ export default function SettingsPage() {
             <Save className={`w-4 h-4 ${isSaving ? 'animate-spin' : ''}`} />
             <span>{isSaving ? 'Menyimpan ke Database...' : 'Simpan Konfigurasi'}</span>
           </button>
+        </div>
+      </div>
+
+      {/* Master Feedback Alert */}
+      {masterStatus && (
+        <div
+          className={`p-3.5 rounded-xl border text-xs flex items-center gap-2.5 ${
+            masterStatus.type === 'success'
+              ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
+              : 'bg-rose-950/30 border-rose-500/40 text-rose-300'
+          }`}
+        >
+          {masterStatus.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          ) : (
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+          )}
+          <span>{masterStatus.text}</span>
+        </div>
+      )}
+
+      {/* Master Cabang (Branch) Management Panel */}
+      <div className="enterprise-card rounded-2xl p-6 space-y-5 border-emerald-500/20">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Master Cabang Perusahaan</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                  Manual Input
+                </span>
+              </h3>
+              <p className="text-xs text-slate-400">
+                Kelola data cabang kantor tanpa data demo. Isi secara manual sesuai lokasi operasional.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Add Branch Form */}
+        <form onSubmit={handleCreateBranch} className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
+          <div className="text-xs font-bold text-slate-300 flex items-center gap-2">
+            <Plus className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Tambah Cabang Baru</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <input
+              type="text"
+              required
+              placeholder="Nama Cabang (misal: Headquarter Sudirman)"
+              value={newBranchName}
+              onChange={(e) => setNewBranchName(e.target.value)}
+              className="sm:col-span-2 px-3 py-2 text-xs rounded-xl bg-slate-900 border border-slate-700/80 text-white placeholder-slate-500 outline-none focus:border-emerald-500"
+            />
+            <input
+              type="text"
+              required
+              placeholder="Kota (misal: Jakarta Selatan)"
+              value={newBranchCity}
+              onChange={(e) => setNewBranchCity(e.target.value)}
+              className="px-3 py-2 text-xs rounded-xl bg-slate-900 border border-slate-700/80 text-white placeholder-slate-500 outline-none focus:border-emerald-500"
+            />
+            <button
+              type="submit"
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-98 shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Simpan Cabang</span>
+            </button>
+          </div>
+        </form>
+
+        {/* Branch List */}
+        <div className="overflow-x-auto rounded-xl border border-slate-800">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-900/80 text-slate-400 font-semibold border-b border-slate-800">
+              <tr>
+                <th className="py-2.5 px-3.5">Kode</th>
+                <th className="py-2.5 px-3.5">Nama Cabang</th>
+                <th className="py-2.5 px-3.5">Kota</th>
+                <th className="py-2.5 px-3.5">Radius</th>
+                <th className="py-2.5 px-3.5 text-right">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60">
+              {branchesList.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-6 text-center text-slate-500 italic">
+                    Belum ada cabang terdaftar. Silakan tambah cabang di formulir atas.
+                  </td>
+                </tr>
+              ) : (
+                branchesList.map((b) => (
+                  <tr key={b.id} className="hover:bg-slate-900/40">
+                    <td className="py-2.5 px-3.5 font-mono text-emerald-400">{b.code}</td>
+                    <td className="py-2.5 px-3.5 font-bold text-white">{b.name}</td>
+                    <td className="py-2.5 px-3.5 text-slate-300">{b.city}</td>
+                    <td className="py-2.5 px-3.5 font-mono text-slate-400">{b.radiusMeters} meter</td>
+                    <td className="py-2.5 px-3.5 text-right">
+                      <button
+                        onClick={() => handleDeleteBranch(b.id, b.name)}
+                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-rose-950/40 text-slate-500 hover:text-rose-400 border border-slate-800 transition-colors"
+                        title="Hapus Cabang"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Master Departemen & Divisi Management Panel */}
+      <div className="enterprise-card rounded-2xl p-6 space-y-5 border-cyan-500/20">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center border border-cyan-500/20">
+              <Layers className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Master Departemen & Divisi</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+                  Manual Input
+                </span>
+              </h3>
+              <p className="text-xs text-slate-400">
+                Buat struktur divisi perusahaan (misal: Engineering, HRD, Finance, Operasional).
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Add Department Form */}
+        <form onSubmit={handleCreateDepartment} className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
+          <div className="text-xs font-bold text-slate-300 flex items-center gap-2">
+            <Plus className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Tambah Departemen Baru</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <input
+              type="text"
+              required
+              placeholder="Nama Departemen (misal: Engineering)"
+              value={newDeptName}
+              onChange={(e) => setNewDeptName(e.target.value)}
+              className="px-3 py-2 text-xs rounded-xl bg-slate-900 border border-slate-700/80 text-white placeholder-slate-500 outline-none focus:border-cyan-500"
+            />
+            <input
+              type="text"
+              placeholder="Kode (misal: ENG)"
+              value={newDeptCode}
+              onChange={(e) => setNewDeptCode(e.target.value)}
+              className="px-3 py-2 text-xs rounded-xl bg-slate-900 border border-slate-700/80 text-white font-mono placeholder-slate-500 outline-none focus:border-cyan-500"
+            />
+            <select
+              value={newDeptBranchId}
+              onChange={(e) => setNewDeptBranchId(e.target.value)}
+              className="px-3 py-2 text-xs rounded-xl bg-slate-900 border border-slate-700/80 text-white outline-none focus:border-cyan-500"
+            >
+              <option value="">-- Hubungkan Cabang (Opsional) --</option>
+              {branchesList.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-98 shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Simpan Departemen</span>
+            </button>
+          </div>
+        </form>
+
+        {/* Department List */}
+        <div className="overflow-x-auto rounded-xl border border-slate-800">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-900/80 text-slate-400 font-semibold border-b border-slate-800">
+              <tr>
+                <th className="py-2.5 px-3.5">Kode</th>
+                <th className="py-2.5 px-3.5">Nama Departemen</th>
+                <th className="py-2.5 px-3.5">Cabang Terhubung</th>
+                <th className="py-2.5 px-3.5 text-right">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60">
+              {departmentsList.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="py-6 text-center text-slate-500 italic">
+                    Belum ada departemen terdaftar. Silakan buat departemen baru di atas.
+                  </td>
+                </tr>
+              ) : (
+                departmentsList.map((d) => {
+                  const br = branchesList.find((b) => b.id === d.branchId);
+                  return (
+                    <tr key={d.id} className="hover:bg-slate-900/40">
+                      <td className="py-2.5 px-3.5 font-mono text-cyan-400">{d.code}</td>
+                      <td className="py-2.5 px-3.5 font-bold text-white">{d.name}</td>
+                      <td className="py-2.5 px-3.5 text-slate-400">{br?.name || 'Semua Cabang'}</td>
+                      <td className="py-2.5 px-3.5 text-right">
+                        <button
+                          onClick={() => handleDeleteDepartment(d.id, d.name)}
+                          className="p-1.5 rounded-lg bg-slate-900 hover:bg-rose-950/40 text-slate-500 hover:text-rose-400 border border-slate-800 transition-colors"
+                          title="Hapus Departemen"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 

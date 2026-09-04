@@ -28,14 +28,14 @@ export interface User {
   fullName: string;
   role: Role;
   jobTitle: string;
-  avatarUrl?: string;
-  phone?: string;
+  avatarUrl?: string | null;
+  phone?: string | null;
   isActive: boolean;
-  branchId: string;
+  branchId?: string | null;
   branchName?: string;
-  departmentId: string;
+  departmentId?: string | null;
   departmentName?: string;
-  shiftId?: string;
+  shiftId?: string | null;
   shiftName?: string;
   // Device (HP) Binding fields
   boundDeviceId?: string | null;
@@ -73,7 +73,7 @@ export interface Department {
   id: string;
   code: string;
   name: string;
-  branchId: string;
+  branchId?: string | null;
 }
 
 export interface AttendanceRecord {
@@ -121,7 +121,7 @@ export interface LeaveRequest {
 
 export interface AuditLog {
   id: string;
-  actorId: string;
+  actorId?: string | null;
   actorName: string;
   actorRole: Role;
   action: string;
@@ -192,9 +192,9 @@ export interface EmployeeInvitation {
   role: Role;
   jobTitle: string;
   phone?: string | null;
-  branchId: string;
+  branchId?: string | null;
   branchName?: string;
-  departmentId: string;
+  departmentId?: string | null;
   departmentName?: string;
   shiftId?: string | null;
   shiftName?: string;
@@ -207,15 +207,15 @@ export interface EmployeeInvitation {
 }
 
 export interface CreateEmployeePayload {
-  employeeCode: string;
+  employeeCode?: string;
   email: string;
   fullName: string;
   role: Role;
-  jobTitle: string;
+  jobTitle?: string;
   phone?: string;
-  branchId: string;
-  departmentId: string;
-  shiftId?: string;
+  branchId?: string | null;
+  departmentId?: string | null;
+  shiftId?: string | null;
   actor?: { id: string; name: string; role: Role };
 }
 
@@ -223,11 +223,11 @@ export interface CreateInvitationPayload {
   email: string;
   fullName: string;
   role: Role;
-  jobTitle: string;
+  jobTitle?: string;
   phone?: string;
-  branchId: string;
-  departmentId: string;
-  shiftId?: string;
+  branchId?: string | null;
+  departmentId?: string | null;
+  shiftId?: string | null;
   invitedBy: string;
   invitedByName: string;
 }

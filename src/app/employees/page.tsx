@@ -23,12 +23,14 @@ import {
   MessageCircle,
   XCircle,
   Sparkles,
+  Edit3,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { attendanceRepo } from '@/lib/attendance-repository';
 import { User, Role, EmployeeInvitation } from '@/types';
 import AddEmployeeModal from '@/components/employees/AddEmployeeModal';
 import InviteEmployeeModal from '@/components/employees/InviteEmployeeModal';
+import EditEmployeeModal from '@/components/employees/EditEmployeeModal';
 
 export default function EmployeesPage() {
   const { currentUser, resetUserDevice, permissions } = useAuth();
@@ -39,6 +41,7 @@ export default function EmployeesPage() {
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
 
   // Filter & Search states
   const [searchQuery, setSearchQuery] = useState('');
@@ -404,13 +407,31 @@ export default function EmployeesPage() {
                         </td>
 
                         <td className="py-3 px-4">
-                          <div className="font-medium text-slate-200">{emp.jobTitle}</div>
-                          <div className="text-[11px] text-slate-400">{emp.departmentName || 'Engineering'}</div>
+                          <div className="font-medium text-slate-200">{emp.jobTitle || 'Staff Karyawan'}</div>
+                          <div className="text-[11px] text-slate-400">
+                            {emp.departmentName ? (
+                              emp.departmentName
+                            ) : (
+                              <span className="text-amber-400/80 italic">Belum Ada Divisi</span>
+                            )}
+                          </div>
                         </td>
 
                         <td className="py-3 px-4">
-                          <div className="text-slate-200">{emp.branchName || 'Headquarter'}</div>
-                          <div className="text-[11px] text-slate-400">{emp.shiftName || 'Standard Office'}</div>
+                          <div className="text-slate-200">
+                            {emp.branchName ? (
+                              emp.branchName
+                            ) : (
+                              <span className="text-amber-400/80 italic">Belum Ada Cabang</span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-400">
+                            {emp.shiftName ? (
+                              emp.shiftName
+                            ) : (
+                              <span className="text-slate-500 italic">Belum Ada Shift</span>
+                            )}
+                          </div>
                         </td>
 
                         <td className="py-3 px-4">
@@ -442,16 +463,26 @@ export default function EmployeesPage() {
                         <td className="py-3 px-4">{getRoleBadge(emp.role)}</td>
 
                         <td className="py-3 px-4 text-right">
-                          {emp.boundDeviceId && (
+                          <div className="flex items-center justify-end gap-2">
                             <button
-                              onClick={() => handleResetDeviceBinding(emp)}
-                              className="px-2.5 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-500/30 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors"
-                              title="Reset HP agar karyawan dapat binding HP baru"
+                              onClick={() => setEditingUser(emp)}
+                              className="px-2.5 py-1.5 rounded-lg bg-blue-950/40 hover:bg-blue-900/60 text-blue-300 border border-blue-500/30 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors"
+                              title="Lengkapi data cabang, divisi, kontak, atau jabatan"
                             >
-                              <RotateCcw className="w-3 h-3" />
-                              <span>Reset HP</span>
+                              <Edit3 className="w-3 h-3" />
+                              <span>Lengkapi Data</span>
                             </button>
-                          )}
+                            {emp.boundDeviceId && (
+                              <button
+                                onClick={() => handleResetDeviceBinding(emp)}
+                                className="px-2.5 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-500/30 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors"
+                                title="Reset HP agar karyawan dapat binding HP baru"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                                <span>Reset HP</span>
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -607,6 +638,18 @@ export default function EmployeesPage() {
         onClose={() => setIsInviteModalOpen(false)}
         onSuccess={() => {
           setRefreshKey((k) => k + 1);
+        }}
+      />
+
+      {/* Edit / Complete Employee Data Modal */}
+      <EditEmployeeModal
+        user={editingUser}
+        isOpen={Boolean(editingUser)}
+        onClose={() => setEditingUser(null)}
+        onSuccess={() => {
+          setRefreshKey((k) => k + 1);
+          setNotification({ type: 'success', text: 'Data profil karyawan berhasil disimpan di database.' });
+          setTimeout(() => setNotification(null), 4000);
         }}
       />
     </div>

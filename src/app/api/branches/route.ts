@@ -73,3 +73,76 @@ export async function PATCH(request: Request) {
     );
   }
 }
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { code, name, city, timezone = 'Asia/Jakarta', latitude, longitude, radiusMeters = 200 } = body;
+
+    if (!name || !city) {
+      return NextResponse.json(
+        { status: 'error', message: 'Nama Cabang dan Kota wajib diisi.' },
+        { status: 400 }
+      );
+    }
+
+    let branchCode = code?.trim();
+    if (!branchCode) {
+      const count = await prisma.branch.count();
+      branchCode = `BR-${city.slice(0, 3).toUpperCase()}-${String(count + 1).padStart(2, '0')}`;
+    }
+
+    const newBranch = await prisma.branch.create({
+      data: {
+        code: branchCode,
+        name: name.trim(),
+        city: city.trim(),
+        timezone,
+        latitude: latitude !== undefined ? Number(latitude) : null,
+        longitude: longitude !== undefined ? Number(longitude) : null,
+        radiusMeters: radiusMeters !== undefined ? Number(radiusMeters) : 200,
+      },
+    });
+
+    return NextResponse.json({
+      status: 'success',
+      message: `Cabang ${newBranch.name} (${newBranch.code}) berhasil dibuat.`,
+      data: newBranch,
+    });
+  } catch (err: any) {
+    console.error('Error creating branch in Neon DB:', err);
+    return NextResponse.json(
+      { status: 'error', message: err.message || 'Gagal membuat cabang baru.' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json(
+        { status: 'error', message: 'Parameter id wajib disertakan.' },
+        { status: 400 }
+      );
+    }
+
+    await prisma.branch.delete({
+      where: { id },
+    });
+
+    return NextResponse.json({
+      status: 'success',
+      message: 'Cabang berhasil dihapus.',
+    });
+  } catch (err: any) {
+    console.error('Error deleting branch in Neon DB:', err);
+    return NextResponse.json(
+      { status: 'error', message: err.message || 'Gagal menghapus cabang.' },
+      { status: 500 }
+    );
+  }
+}

@@ -42,7 +42,7 @@ export async function GET(request: Request) {
       employeeCode: r.user.employeeCode,
       employeeName: r.user.fullName,
       departmentName: r.user.department?.name || 'Divisi',
-      branchName: r.branch.name,
+      branchName: r.branch?.name || 'Cabang Utama',
       shiftName: r.shift?.name || 'Standard Shift',
       date: r.date.toISOString().split('T')[0],
       checkIn: r.checkIn ? r.checkIn.toISOString() : undefined,
