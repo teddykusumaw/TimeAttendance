@@ -1,0 +1,200 @@
+// Prisma schema for Tier 1 Enterprise TimeAttendance
+// Powered by Neon Serverless PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  HR_ADMIN
+  MANAGER
+  EMPLOYEE
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  EARLY_DEPARTURE
+  ABSENT
+  ON_LEAVE
+  OVERTIME
+}
+
+enum VerificationMethod {
+  WEB_KIOSK
+  BULK_EXCEL
+  BIOMETRIC_SIM
+  MOBILE_GEO
+}
+
+enum LeaveStatus {
+  PENDING
+  MANAGER_APPROVED
+  HR_APPROVED
+  REJECTED
+}
+
+model Branch {
+  id          String       @id @default(cuid())
+  code        String       @unique
+  name        String
+  city        String
+  timezone    String       @default("Asia/Jakarta")
+  latitude    Float?
+  longitude   Float?
+  radiusMeters Int         @default(200)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  departments Department[]
+  users       User[]
+  records     AttendanceRecord[]
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  branchId  String
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  users     User[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Shift {
+  id              String             @id @default(cuid())
+  code            String             @unique
+  name            String
+  startTime       String             // "08:00"
+  endTime         String             // "17:00"
+  gracePeriodMins Int                @default(15)
+  breakMins       Int                @default(60)
+  isFlexible      Boolean            @default(false)
+  workDays        String             @default("MON,TUE,WED,THU,FRI")
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  users           User[]
+  records         AttendanceRecord[]
+}
+
+model User {
+  id            String             @id @default(cuid())
+  employeeCode  String             @unique // e.g. "EMP-1001"
+  email         String             @unique
+  passwordHash  String
+  fullName      String
+  role          Role               @default(EMPLOYEE)
+  jobTitle      String
+  avatarUrl     String?
+  phone         String?
+  isActive      Boolean            @default(true)
+  
+  branchId      String
+  branch        Branch             @relation(fields: [branchId], references: [id])
+  
+  departmentId  String
+  department    Department         @relation(fields: [departmentId], references: [id])
+  
+  shiftId       String?
+  shift         Shift?             @relation(fields: [shiftId], references: [id])
+  
+  attendances   AttendanceRecord[]
+  leaveRequests LeaveRequest[]
+  auditLogs     AuditLog[]
+  importBatches BulkImportBatch[]
+  
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+}
+
+model AttendanceRecord {
+  id                 String             @id @default(cuid())
+  userId             String
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  branchId           String
+  branch             Branch             @relation(fields: [branchId], references: [id])
+  
+  shiftId            String?
+  shift              Shift?             @relation(fields: [shiftId], references: [id])
+  
+  date               DateTime           @db.Date
+  checkIn            DateTime?
+  checkOut           DateTime?
+  status             AttendanceStatus   @default(PRESENT)
+  
+  lateMinutes        Int                @default(0)
+  earlyMinutes       Int                @default(0)
+  overtimeMinutes    Int                @default(0)
+  effectiveWorkHours Float              @default(0)
+  
+  verificationMethod VerificationMethod @default(WEB_KIOSK)
+  photoUrl           String?
+  latitude           Float?
+  longitude          Float?
+  ipAddress          String?
+  notes              String?
+  
+  importBatchId      String?
+  importBatch        BulkImportBatch?   @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+  
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@unique([userId, date])
+  @@index([date])
+  @@index([status])
+}
+
+model LeaveRequest {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leaveType   String      // "ANNUAL", "SICK", "MATERNITY", "SPECIAL"
+  startDate   DateTime    @db.Date
+  endDate     DateTime    @db.Date
+  totalDays   Int
+  reason      String
+  status      LeaveStatus @default(PENDING)
+  approvedBy  String?
+  reviewNotes String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model BulkImportBatch {
+  id             String             @id @default(cuid())
+  fileName       String
+  fileSize       Int
+  totalRows      Int
+  successCount   Int
+  errorCount     Int
+  warningCount   Int                @default(0)
+  errorSummary   String?            // JSON serialized errors
+  uploadedById   String
+  uploadedBy     User               @relation(fields: [uploadedById], references: [id])
+  records        AttendanceRecord[]
+  createdAt      DateTime           @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actor      User     @relation(fields: [actorId], references: [id])
+  action     String   // "CHECK_IN", "CHECK_OUT", "BULK_IMPORT", "LEAVE_APPROVAL", "SHIFT_UPDATE"
+  entityType String   // "AttendanceRecord", "LeaveRequest", "Shift", "User"
+  entityId   String?
+  details    String?  // JSON string
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([action])
+  @@index([createdAt])
+}

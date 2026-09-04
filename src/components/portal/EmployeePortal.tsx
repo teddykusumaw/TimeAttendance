@@ -1,0 +1,308 @@
+'use client';
+
+import React, { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import {
+  Sparkles,
+  CalendarCheck,
+  Clock,
+  MapPin,
+  Building2,
+  CalendarOff,
+  LogOut,
+  CheckCircle2,
+  AlertCircle,
+  Clock3,
+  Calendar,
+  ChevronRight,
+  ShieldCheck,
+  Briefcase,
+  History,
+  Info,
+} from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import LivePunchCard from '@/components/attendance/LivePunchCard';
+import { attendanceRepo } from '@/lib/attendance-repository';
+import { AttendanceRecord } from '@/types';
+
+export default function EmployeePortal() {
+  const router = useRouter();
+  const { currentUser, logout, switchRole } = useAuth();
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // Today's live record
+  const todayRecord = attendanceRepo.getEmployeeTodayRecord(currentUser.id);
+
+  // My personal attendance history (filtered strictly for this employee)
+  const myRecords = useMemo(() => {
+    const all = attendanceRepo.getAttendanceRecords();
+    return all.filter((r) => r.userId === currentUser.id);
+  }, [currentUser.id, refreshKey]);
+
+  // Statistics calculation for current employee
+  const stats = useMemo(() => {
+    const presentCount = myRecords.filter((r) => r.status === 'PRESENT').length;
+    const lateCount = myRecords.filter((r) => r.status === 'LATE').length;
+    const leaveCount = myRecords.filter((r) => r.status === 'ON_LEAVE').length;
+    return {
+      totalPunches: myRecords.length,
+      presentCount,
+      lateCount,
+      leaveCount,
+      remainingLeave: 12 - leaveCount,
+    };
+  }, [myRecords]);
+
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
+
+  const getStatusBadge = (status: AttendanceRecord['status']) => {
+    switch (status) {
+      case 'PRESENT':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <CheckCircle2 className="w-3 h-3" />
+            Hadir Tepat Waktu
+          </span>
+        );
+      case 'LATE':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            <AlertCircle className="w-3 h-3" />
+            Terlambat
+          </span>
+        );
+      case 'ON_LEAVE':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+            <CalendarOff className="w-3 h-3" />
+            Cuti / Izin
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/20">
+            {status}
+          </span>
+        );
+    }
+  };
+
+  return (
+    <div className="space-y-6 pb-12 max-w-4xl mx-auto">
+      {/* Employee Identity Header */}
+      <div className="enterprise-card rounded-2xl p-5 sm:p-6 relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 relative z-10">
+          <div className="flex items-start sm:items-center gap-4">
+            <div className="relative">
+              <img
+                src={
+                  currentUser.avatarUrl ||
+                  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150'
+                }
+                alt={currentUser.fullName}
+                className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover border-2 border-blue-500/40 shadow-lg shadow-blue-500/10"
+              />
+              <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-slate-900"></span>
+            </div>
+
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold">
+                  {currentUser.employeeCode || 'EMP-0004'}
+                </span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  Portal Mandiri Karyawan
+                </span>
+              </div>
+              <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight mt-1">
+                {currentUser.fullName}
+              </h1>
+              <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
+                <Briefcase className="w-3.5 h-3.5 text-slate-500" />
+                <span>{currentUser.jobTitle || 'Staff Karyawan'}</span>
+                <span>•</span>
+                <span>{currentUser.departmentName || 'Divisi Kerja'}</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Quick Shift Badge & Logout */}
+          <div className="flex items-center gap-3 self-end sm:self-auto">
+            <div className="hidden sm:block text-right">
+              <div className="text-[11px] text-slate-400 font-medium">Jadwal Shift Hari Ini</div>
+              <div className="text-xs font-bold text-white flex items-center gap-1.5 justify-end mt-0.5">
+                <Clock className="w-3.5 h-3.5 text-blue-400" />
+                <span>{currentUser.shiftName || 'Standard Office (08:00 - 17:00)'}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={handleLogout}
+              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 text-xs font-semibold flex items-center gap-2 transition-colors shadow-sm"
+              title="Keluar dari sesi portal karyawan"
+            >
+              <LogOut className="w-3.5 h-3.5 text-rose-400" />
+              <span>Keluar</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Shift Details Sub-strip for Mobile */}
+        <div className="mt-4 pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 text-slate-300">
+            <MapPin className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span>Cabang Penugasan: <strong className="text-white">{currentUser.branchName || 'Headquarter Sudirman'}</strong></span>
+          </div>
+
+          <div className="flex items-center gap-2 text-slate-400 text-[11px]">
+            <Info className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span>Toleransi Keterlambatan: <strong className="text-slate-200">15 Menit</strong></span>
+          </div>
+        </div>
+      </div>
+
+      {/* Live Punch Terminal (Kios Presensi Mandiri Geofence & GPS) */}
+      <div id="live-punch-terminal">
+        <LivePunchCard
+          onAttendanceUpdated={() => {
+            setRefreshKey((k) => k + 1);
+          }}
+        />
+      </div>
+
+      {/* Summary KPI Cards for Employee */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+        <div className="enterprise-card rounded-2xl p-4 flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-400 text-xs">
+            <span>Hadir Tepat Waktu</span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="mt-3">
+            <div className="text-2xl font-bold text-white">{stats.presentCount}</div>
+            <div className="text-[10px] text-emerald-400 font-medium mt-0.5">Hari Bulan Ini</div>
+          </div>
+        </div>
+
+        <div className="enterprise-card rounded-2xl p-4 flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-400 text-xs">
+            <span>Terlambat</span>
+            <AlertCircle className="w-4 h-4 text-amber-400" />
+          </div>
+          <div className="mt-3">
+            <div className="text-2xl font-bold text-white">{stats.lateCount}</div>
+            <div className="text-[10px] text-amber-400 font-medium mt-0.5">Hari Bulan Ini</div>
+          </div>
+        </div>
+
+        <div className="enterprise-card rounded-2xl p-4 flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-400 text-xs">
+            <span>Sisa Cuti Tahunan</span>
+            <CalendarOff className="w-4 h-4 text-cyan-400" />
+          </div>
+          <div className="mt-3">
+            <div className="text-2xl font-bold text-white">{stats.remainingLeave}</div>
+            <div className="text-[10px] text-cyan-400 font-medium mt-0.5">Hari Tersisa</div>
+          </div>
+        </div>
+
+        <div className="enterprise-card rounded-2xl p-4 flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-400 text-xs">
+            <span>Total Presensi</span>
+            <History className="w-4 h-4 text-blue-400" />
+          </div>
+          <div className="mt-3">
+            <div className="text-2xl font-bold text-white">{stats.totalPunches}</div>
+            <div className="text-[10px] text-blue-400 font-medium mt-0.5">Record Terverifikasi</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Riwayat Presensi Pribadi Karyawan */}
+      <div className="enterprise-card rounded-2xl p-5 sm:p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <CalendarCheck className="w-4 h-4 text-blue-400" />
+              <h2 className="text-base font-bold text-white">Riwayat Presensi Saya</h2>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Catatan kehadiran terverifikasi GPS geofencing & jam kerja mandiri Anda.
+            </p>
+          </div>
+
+          <Link
+            href="/leaves"
+            className="px-4 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-xs font-semibold flex items-center gap-2 transition-colors self-start sm:self-auto"
+          >
+            <CalendarOff className="w-3.5 h-3.5" />
+            <span>Ajukan Izin / Cuti</span>
+          </Link>
+        </div>
+
+        {myRecords.length === 0 ? (
+          <div className="text-center py-10 text-slate-500 text-xs space-y-2">
+            <Calendar className="w-8 h-8 mx-auto text-slate-600 stroke-[1.5]" />
+            <p>Belum ada catatan presensi untuk akun Anda.</p>
+            <p className="text-[11px] text-slate-600">Gunakan kartu presensi di atas untuk melakukan Check-In.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {myRecords.slice(0, 10).map((record) => (
+              <div
+                key={record.id}
+                className="p-4 rounded-xl bg-slate-900/60 hover:bg-slate-900 border border-slate-800 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+              >
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-white">
+                      {new Date(record.date).toLocaleDateString('id-ID', {
+                        weekday: 'long',
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    </span>
+                    {getStatusBadge(record.status)}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
+                    <span className="flex items-center gap-1 text-emerald-400">
+                      <Clock className="w-3 h-3" />
+                      Masuk: <strong>{record.checkIn || '--:--'} WIB</strong>
+                    </span>
+                    <span className="flex items-center gap-1 text-slate-300">
+                      <Clock3 className="w-3 h-3 text-slate-400" />
+                      Pulang: <strong>{record.checkOut || '--:--'} WIB</strong>
+                    </span>
+                    {record.effectiveWorkHours > 0 ? (
+                      <span className="text-slate-400">
+                        Durasi: {record.effectiveWorkHours.toFixed(1)} Jam
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {record.notes && (
+                    <p className="text-[11px] text-slate-500 italic mt-0.5">
+                      Catatan: {record.notes}
+                    </p>
+                  )}
+                </div>
+
+                <div className="text-left sm:text-right shrink-0">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-mono font-medium bg-slate-800 text-slate-300 border border-slate-700/60">
+                    <ShieldCheck className="w-3 h-3 text-cyan-400" />
+                    {record.verificationMethod}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
