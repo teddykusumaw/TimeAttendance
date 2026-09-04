@@ -10,11 +10,7 @@ import {
   ArrowRight,
   Eye,
   EyeOff,
-  CheckCircle2,
   AlertCircle,
-  KeyRound,
-  Shield,
-  Building,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
@@ -22,9 +18,9 @@ export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
 
-  // Form states
-  const [identifier, setIdentifier] = useState('teddykusumawirawan81@gmail.com');
-  const [password, setPassword] = useState('12345678!');
+  // Form states (clean manual login)
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -109,7 +105,7 @@ export default function LoginPage() {
                   type="text"
                   required
                   autoComplete="username"
-                  placeholder="teddykusumawirawan81@gmail.com"
+                  placeholder="Masukkan Email atau NIK Karyawan..."
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   className="w-full pl-10 pr-3.5 py-3 rounded-xl bg-slate-950/80 border border-slate-800 text-white placeholder-slate-600 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-medium text-xs"
@@ -130,7 +126,7 @@ export default function LoginPage() {
                   type={showPassword ? 'text' : 'password'}
                   required
                   autoComplete="current-password"
-                  placeholder="••••••••••••"
+                  placeholder="Masukkan kata sandi..."
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-10 py-3 rounded-xl bg-slate-950/80 border border-slate-800 text-white placeholder-slate-600 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-mono text-xs"
@@ -162,22 +158,6 @@ export default function LoginPage() {
               </button>
             </div>
           </form>
-
-          {/* Super Administrator Access Card */}
-          <div className="mt-4 pt-4 border-t border-slate-800/80">
-            <div className="p-3.5 rounded-xl bg-cyan-950/20 border border-cyan-500/20 text-[11px] text-slate-400 space-y-1">
-              <div className="flex items-center gap-2 font-semibold text-cyan-400">
-                <Shield className="w-3.5 h-3.5" />
-                <span>Akun Superuser Produksi:</span>
-              </div>
-              <div className="font-mono text-slate-300">
-                Email: <span className="text-white font-semibold">teddykusumawirawan81@gmail.com</span>
-              </div>
-              <div className="text-[10px] text-slate-500">
-                Akses penuh konfigurasi perusahaan, pendaftaran karyawan, kebijakan geofence, dan integrasi database Neon Serverless.
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Footer info */}
