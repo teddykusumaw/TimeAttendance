@@ -32,6 +32,7 @@ enum VerificationMethod {
   BULK_EXCEL
   BIOMETRIC_SIM
   MOBILE_GEO
+  FACIAL_RECOG
 }
 
 enum LeaveStatus {
@@ -96,6 +97,15 @@ model User {
   phone         String?
   isActive      Boolean            @default(true)
   
+  // Enterprise Device Binding (1 HP per User)
+  boundDeviceId   String?
+  boundDeviceName String?
+  boundDeviceAt   DateTime?
+
+  // Biometric Master Face Photo & Enrollment
+  facePhotoUrl    String?            @db.Text
+  faceEnrolledAt  DateTime?
+
   branchId      String
   branch        Branch             @relation(fields: [branchId], references: [id])
   
@@ -136,11 +146,11 @@ model AttendanceRecord {
   effectiveWorkHours Float              @default(0)
   
   verificationMethod VerificationMethod @default(WEB_KIOSK)
-  photoUrl           String?
+  photoUrl           String?            @db.Text
   latitude           Float?
   longitude          Float?
   ipAddress          String?
-  notes              String?
+  notes              String?            @db.Text
   
   importBatchId      String?
   importBatch        BulkImportBatch?   @relation(fields: [importBatchId], references: [id], onDelete: SetNull)

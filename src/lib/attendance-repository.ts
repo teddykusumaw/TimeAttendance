@@ -40,6 +40,11 @@ class AttendanceRepository {
 
   constructor() {
     this.initFromStorage();
+    if (typeof window !== 'undefined') {
+      setTimeout(() => {
+        this.syncWithDatabase();
+      }, 200);
+    }
   }
 
   private initFromStorage() {
@@ -63,6 +68,33 @@ class AttendanceRepository {
       this.isInitialized = true;
     } catch (e) {
       console.error('Failed to load local repository state', e);
+    }
+  }
+
+  public async syncWithDatabase(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    try {
+      // 1. Fetch Users from Neon PostgreSQL
+      const usersRes = await fetch('/api/users');
+      if (usersRes.ok) {
+        const json = await usersRes.json();
+        if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
+          this.users = json.data;
+          this.syncToStorage();
+        }
+      }
+
+      // 2. Fetch Attendance Records from Neon PostgreSQL
+      const attRes = await fetch('/api/attendance');
+      if (attRes.ok) {
+        const json = await attRes.json();
+        if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
+          this.attendance = json.data;
+          this.syncToStorage();
+        }
+      }
+    } catch (e) {
+      console.warn('[Neon DB] Background sync note:', e);
     }
   }
 
@@ -200,6 +232,25 @@ class AttendanceRepository {
     });
 
     this.syncToStorage();
+
+    // Persist Punch In to Neon PostgreSQL in background
+    if (typeof window !== 'undefined') {
+      fetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          employeeCode: user.employeeCode,
+          type: 'IN',
+          notes: newRecord.notes,
+          photoUrl: options.photoUrl,
+          method: options.method || 'FACIAL_RECOG',
+          latitude: options.latitude,
+          longitude: options.longitude,
+        }),
+      }).catch((e) => console.warn('[Neon DB] punchIn sync error:', e));
+    }
+
     return {
       success: true,
       record: newRecord,
@@ -264,14 +315,34 @@ class AttendanceRepository {
       action: 'PUNCH_OUT',
       entityType: 'AttendanceRecord',
       entityId: updated.id,
-      details: `Presensi Pulang pada ${now.toLocaleTimeString('id-ID')} (Durasi ${effectiveHours} jam, Lembur ${otMins} mnt)`,
+      details: `Presensi Pulang pada ${now.toLocaleTimeString('id-ID')} (Total: ${effectiveHours} Jam)`,
     });
 
     this.syncToStorage();
+
+    // Persist Punch Out to Neon PostgreSQL in background
+    if (typeof window !== 'undefined') {
+      fetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          employeeCode: user.employeeCode,
+          type: 'OUT',
+          notes: options.notes,
+          photoUrl: options.photoUrl,
+        }),
+      }).catch((e) => console.warn('[Neon DB] punchOut sync error:', e));
+    }
+
     return {
       success: true,
       record: updated,
-      message: `Presensi pulang berhasil. Durasi kerja: ${effectiveHours} jam.`,
+      message: isOvertime
+        ? `Presensi pulang tercatat: Lembur ${otMins} menit.`
+        : isEarly
+        ? `Presensi pulang tercatat: Pulang awal ${earlyMins} menit.`
+        : 'Presensi pulang berhasil tercatat.',
     };
   }
 
@@ -490,6 +561,20 @@ class AttendanceRepository {
     this.users[idx] = updated;
     this.syncToStorage();
 
+    // Persist Device Binding to Neon PostgreSQL
+    if (typeof window !== 'undefined') {
+      fetch('/api/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'BIND_DEVICE',
+          userId: updated.id,
+          deviceId,
+          deviceName,
+        }),
+      }).catch((e) => console.warn('[Neon DB] bind device sync error:', e));
+    }
+
     this.logAudit({
       actorId: updated.id,
       actorName: updated.fullName,
@@ -523,6 +608,19 @@ class AttendanceRepository {
     this.users[idx] = updated;
     this.syncToStorage();
 
+    // Persist Device Reset to Neon PostgreSQL
+    if (typeof window !== 'undefined') {
+      fetch('/api/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'RESET_DEVICE',
+          userId: targetUser.id,
+          actor,
+        }),
+      }).catch((e) => console.warn('[Neon DB] reset device sync error:', e));
+    }
+
     this.logAudit({
       actorId: actor ? actor.id : 'super-admin-sys',
       actorName: actor ? actor.name : 'Super Administrator',
@@ -548,6 +646,19 @@ class AttendanceRepository {
 
     this.users[idx] = updated;
     this.syncToStorage();
+
+    // Persist Face Photo to Neon PostgreSQL
+    if (typeof window !== 'undefined') {
+      fetch('/api/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'ENROLL_FACE',
+          userId: updated.id,
+          facePhotoUrl,
+        }),
+      }).catch((e) => console.warn('[Neon DB] enroll face sync error:', e));
+    }
 
     this.logAudit({
       actorId: updated.id,
