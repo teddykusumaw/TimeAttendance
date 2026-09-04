@@ -12,7 +12,8 @@ export type VerificationMethod =
   | 'WEB_KIOSK'
   | 'BULK_EXCEL'
   | 'BIOMETRIC_SIM'
-  | 'MOBILE_GEO';
+  | 'MOBILE_GEO'
+  | 'FACIAL_RECOG';
 
 export type LeaveStatus =
   | 'PENDING'
@@ -36,6 +37,13 @@ export interface User {
   departmentName?: string;
   shiftId?: string;
   shiftName?: string;
+  // Device (HP) Binding fields
+  boundDeviceId?: string | null;
+  boundDeviceName?: string | null;
+  boundDeviceAt?: string | null;
+  // Face Recognition Biometrics fields
+  facePhotoUrl?: string | null;
+  faceEnrolledAt?: string | null;
 }
 
 export interface Shift {

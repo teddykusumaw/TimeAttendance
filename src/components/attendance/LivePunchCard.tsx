@@ -16,6 +16,8 @@ import {
   ShieldCheck,
   ShieldAlert,
   HelpCircle,
+  Smartphone,
+  Lock,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { attendanceRepo } from '@/lib/attendance-repository';
@@ -25,20 +27,31 @@ import {
   evaluateGeofence,
   GeofenceCheckResult,
 } from '@/lib/geo-utils';
+import { getOrCreateDeviceId, validateDeviceBinding } from '@/lib/device-utils';
 import GeofenceMap from './GeofenceMap';
+import FaceScannerModal from './FaceScannerModal';
+import DeviceBindingModal from './DeviceBindingModal';
 
 interface LivePunchCardProps {
-
   onAttendanceUpdated?: () => void;
 }
 
 export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProps) {
-  const { currentUser } = useAuth();
+  const { currentUser, refreshUser } = useAuth();
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [notes, setNotes] = useState('');
   const [todayRecord, setTodayRecord] = useState<AttendanceRecord | undefined>(undefined);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
   const [isPunching, setIsPunching] = useState(false);
+
+  // Face Recognition Modal State
+  const [isFaceModalOpen, setIsFaceModalOpen] = useState(false);
+  const [capturedFacePhoto, setCapturedFacePhoto] = useState<string | null>(null);
+  const [pendingPunchType, setPendingPunchType] = useState<'IN' | 'OUT' | null>(null);
+
+  // Device Binding Modal State
+  const [isBindingModalOpen, setIsBindingModalOpen] = useState(false);
+  const [bindingModalMode, setBindingModalMode] = useState<'BIND_PROMPT' | 'MISMATCH_BLOCK'>('BIND_PROMPT');
 
   // Real Device Geolocation & Geofencing State
   const [deviceCoords, setDeviceCoords] = useState<{
@@ -124,7 +137,30 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
       ? evaluateGeofence(activeLat, activeLon, branchLat, branchLon, branchRadius, userBranch.name)
       : null;
 
-  const handleCheckIn = () => {
+  const verifyDeviceBinding = (): boolean => {
+    const currentDeviceId = getOrCreateDeviceId();
+    const result = validateDeviceBinding(currentUser, currentDeviceId);
+
+    if (result.allowed) return true;
+
+    if (result.status === 'UNBOUND') {
+      setBindingModalMode('BIND_PROMPT');
+      setIsBindingModalOpen(true);
+      return false;
+    }
+
+    if (result.status === 'MISMATCH') {
+      setBindingModalMode('MISMATCH_BLOCK');
+      setIsBindingModalOpen(true);
+      return false;
+    }
+
+    return false;
+  };
+
+  const handleCheckIn = (facePhoto?: string) => {
+    if (!verifyDeviceBinding()) return;
+
     // Check Geofence constraint
     if (geofenceResult && !geofenceResult.isInside && !simulateOffice) {
       const proceed = confirm(
@@ -143,11 +179,13 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
         ? `Presensi Di Luar Geofence (${geofenceResult.distanceMeters}m)`
         : 'Presensi GPS Standar';
 
+      const photoToUse = typeof facePhoto === 'string' ? facePhoto : capturedFacePhoto;
       const combinedNotes = notes ? `${notes} • ${locationNote}` : locationNote;
 
       const res = attendanceRepo.punchIn(currentUser, {
         notes: combinedNotes,
-        method: 'MOBILE_GEO',
+        method: photoToUse ? 'FACIAL_RECOG' : 'MOBILE_GEO',
+        photoUrl: photoToUse || undefined,
         latitude: activeLat ?? undefined,
         longitude: activeLon ?? undefined,
       });
@@ -155,10 +193,11 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
       if (res.success) {
         setFeedback({
           type: res.record.status === 'LATE' ? 'warning' : 'success',
-          message: res.message,
+          message: `${res.message}${photoToUse ? ' • Verifikasi Wajah Tersimpan' : ''}`,
         });
         refreshRecord();
         setNotes('');
+        setCapturedFacePhoto(null);
         if (onAttendanceUpdated) onAttendanceUpdated();
       } else {
         setFeedback({ type: 'error', message: res.message });
@@ -167,25 +206,48 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
     }, 400);
   };
 
-  const handleCheckOut = () => {
+  const handleCheckOut = (facePhoto?: string) => {
+    if (!verifyDeviceBinding()) return;
+
     setIsPunching(true);
     setFeedback(null);
 
     setTimeout(() => {
+      const photoToUse = typeof facePhoto === 'string' ? facePhoto : capturedFacePhoto;
       const res = attendanceRepo.punchOut(currentUser, {
         notes: notes || undefined,
+        photoUrl: photoToUse || undefined,
       });
 
       if (res.success) {
-        setFeedback({ type: 'success', message: res.message });
+        setFeedback({
+          type: 'success',
+          message: `${res.message}${photoToUse ? ' • Verifikasi Wajah Tersimpan' : ''}`,
+        });
         refreshRecord();
         setNotes('');
+        setCapturedFacePhoto(null);
         if (onAttendanceUpdated) onAttendanceUpdated();
       } else {
         setFeedback({ type: 'error', message: res.message });
       }
       setIsPunching(false);
     }, 400);
+  };
+
+  const handleStartFacePunch = (type: 'IN' | 'OUT') => {
+    if (!verifyDeviceBinding()) return;
+    setPendingPunchType(type);
+    setIsFaceModalOpen(true);
+  };
+
+  const handleFaceCaptured = (photoBase64: string) => {
+    setCapturedFacePhoto(photoBase64);
+    if (pendingPunchType === 'IN') {
+      handleCheckIn(photoBase64);
+    } else if (pendingPunchType === 'OUT') {
+      handleCheckOut(photoBase64);
+    }
   };
 
   const formattedTime = currentTime
@@ -250,8 +312,42 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
 
         {/* Right: Punch Actions & Form */}
         <div className="flex flex-col gap-3 min-w-[280px] sm:min-w-[340px]">
+          {/* Device Binding Status Pill */}
+          <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <Smartphone className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+              {currentUser.role === 'SUPER_ADMIN' ? (
+                <span className="text-[11px] text-purple-300 font-medium">
+                  Super Admin (Bebas Binding HP)
+                </span>
+              ) : currentUser.boundDeviceId ? (
+                <span className="text-[11px] text-slate-300 truncate max-w-[200px]">
+                  HP Terikat: <strong className="text-emerald-400">{currentUser.boundDeviceName || 'Perangkat Terdaftar'}</strong>
+                </span>
+              ) : (
+                <span className="text-[11px] text-amber-400 flex items-center gap-1 font-medium">
+                  <AlertTriangle className="w-3 h-3 text-amber-400" />
+                  <span>HP Belum Terikat</span>
+                </span>
+              )}
+            </div>
+
+            {currentUser.role !== 'SUPER_ADMIN' && !currentUser.boundDeviceId && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBindingModalMode('BIND_PROMPT');
+                  setIsBindingModalOpen(true);
+                }}
+                className="px-2 py-0.5 rounded-md bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 text-[10px] font-bold transition-colors"
+              >
+                Ikat HP
+              </button>
+            )}
+          </div>
+
           {/* Today's Punch Status Banner */}
-          <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between">
+          <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between">
             <span className="text-xs text-slate-400 font-medium">Status Hari Ini:</span>
             {!hasCheckedIn ? (
               <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700 flex items-center gap-1.5">
@@ -281,12 +377,29 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
             className="w-full text-xs px-3 py-2.5 rounded-xl bg-slate-900/80 border border-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-white placeholder-slate-500 outline-none transition-all disabled:opacity-50"
           />
 
-          {/* Action Buttons */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Primary Biometric Face Punch Button */}
+          {!hasCheckedOut && (
             <button
-              onClick={handleCheckIn}
+              type="button"
+              onClick={() => handleStartFacePunch(!hasCheckedIn ? 'IN' : 'OUT')}
+              disabled={isPunching}
+              className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white text-xs font-bold shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 transition-all active:scale-98"
+            >
+              <Camera className="w-4 h-4" />
+              <span>
+                {!hasCheckedIn
+                  ? 'Presensi Masuk dengan Wajah (Face Biometric)'
+                  : 'Presensi Pulang dengan Wajah'}
+              </span>
+            </button>
+          )}
+
+          {/* Action Buttons (Standard GPS Punch) */}
+          <div className="grid grid-cols-2 gap-2.5">
+            <button
+              onClick={() => handleCheckIn()}
               disabled={hasCheckedIn || isPunching}
-              className={`py-3 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg ${
+              className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm ${
                 hasCheckedIn
                   ? 'bg-slate-900 text-slate-600 border border-slate-800 cursor-not-allowed'
                   : geofenceResult?.isInside || simulateOffice
@@ -295,20 +408,20 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
               }`}
             >
               <LogIn className="w-4 h-4" />
-              <span>{hasCheckedIn ? 'Sudah Check In' : 'Check In Masuk'}</span>
+              <span>{hasCheckedIn ? 'Sudah Check In' : 'Check In Biasa'}</span>
             </button>
 
             <button
-              onClick={handleCheckOut}
+              onClick={() => handleCheckOut()}
               disabled={!hasCheckedIn || hasCheckedOut || isPunching}
-              className={`py-3 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg ${
+              className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm ${
                 !hasCheckedIn || hasCheckedOut
                   ? 'bg-slate-900 text-slate-600 border border-slate-800 cursor-not-allowed'
                   : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20 active:scale-98'
               }`}
             >
               <LogOut className="w-4 h-4" />
-              <span>{hasCheckedOut ? 'Sudah Check Out' : 'Check Out Pulang'}</span>
+              <span>{hasCheckedOut ? 'Sudah Check Out' : 'Check Out Biasa'}</span>
             </button>
           </div>
         </div>
@@ -441,6 +554,26 @@ export default function LivePunchCard({ onAttendanceUpdated }: LivePunchCardProp
           <span>{feedback.message}</span>
         </div>
       )}
+
+      {/* Biometric Face Scanner Modal */}
+      <FaceScannerModal
+        isOpen={isFaceModalOpen}
+        onClose={() => setIsFaceModalOpen(false)}
+        onCapture={handleFaceCaptured}
+        employeeName={currentUser.fullName}
+      />
+
+      {/* Device Binding & Mismatch Modal */}
+      <DeviceBindingModal
+        isOpen={isBindingModalOpen}
+        onClose={() => setIsBindingModalOpen(false)}
+        mode={bindingModalMode}
+        boundDeviceName={currentUser.boundDeviceName}
+        onSuccess={() => {
+          refreshRecord();
+          if (refreshUser) refreshUser();
+        }}
+      />
     </div>
   );
 }

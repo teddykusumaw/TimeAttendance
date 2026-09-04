@@ -3,6 +3,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Role } from '@/types';
 import { INITIAL_USERS } from '@/lib/mock-data';
+import { attendanceRepo } from '@/lib/attendance-repository';
+import { getOrCreateDeviceId, getDeviceModelName } from '@/lib/device-utils';
 
 interface AuthContextType {
   currentUser: User;
@@ -12,6 +14,9 @@ interface AuthContextType {
   switchUser: (userId: string) => void;
   login: (identifier: string, role?: Role) => boolean;
   logout: () => void;
+  bindCurrentDevice: (customName?: string) => boolean;
+  resetUserDevice: (userId: string) => boolean;
+  refreshUser: () => void;
   allUsers: User[];
   permissions: {
     canUploadBulkExcel: boolean;
@@ -127,6 +132,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCurrentUser(defaultEmp);
   };
 
+  const refreshUser = () => {
+    const updated = attendanceRepo.getUserById(currentUser.id);
+    if (updated) setCurrentUser(updated);
+  };
+
+  const bindCurrentDevice = (customName?: string): boolean => {
+    const deviceId = getOrCreateDeviceId();
+    const deviceName = customName || getDeviceModelName();
+    const updated = attendanceRepo.bindUserDevice(currentUser.id, deviceId, deviceName);
+    if (updated) {
+      setCurrentUser(updated);
+      return true;
+    }
+    return false;
+  };
+
+  const resetUserDevice = (userId: string): boolean => {
+    const updated = attendanceRepo.resetUserDevice(userId, {
+      id: currentUser.id,
+      name: currentUser.fullName,
+      role: currentUser.role,
+    });
+    if (updated) {
+      if (currentUser.id === userId) {
+        setCurrentUser(updated);
+      }
+      return true;
+    }
+    return false;
+  };
+
   const role = currentUser.role;
   const isSuperAdmin = role === 'SUPER_ADMIN';
   const isHRAdmin = role === 'HR_ADMIN';
@@ -157,7 +193,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         switchUser,
         login,
         logout,
-        allUsers: INITIAL_USERS,
+        bindCurrentDevice,
+        resetUserDevice,
+        refreshUser,
+        allUsers: attendanceRepo.getUsers(),
         permissions,
       }}
     >

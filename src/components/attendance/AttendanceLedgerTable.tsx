@@ -18,6 +18,9 @@ import {
   RefreshCw,
   Eye,
   Edit3,
+  Camera,
+  X,
+  UserCheck,
 } from 'lucide-react';
 import { AttendanceRecord, AttendanceFilters } from '@/types';
 import { attendanceRepo } from '@/lib/attendance-repository';
@@ -34,6 +37,7 @@ export default function AttendanceLedgerTable({
   onRefresh,
 }: AttendanceLedgerTableProps) {
   const { currentUser, permissions } = useAuth();
+  const [previewPhotoRecord, setPreviewPhotoRecord] = useState<AttendanceRecord | null>(null);
 
   const [filters, setFilters] = useState<AttendanceFilters>({
     searchQuery: '',
@@ -303,9 +307,35 @@ export default function AttendanceLedgerTable({
                     </td>
                     <td className="p-3.5 whitespace-nowrap">{getStatusBadge(r)}</td>
                     <td className="p-3.5">
-                      <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800">
-                        {r.verificationMethod}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {r.photoUrl && (
+                          <button
+                            type="button"
+                            onClick={() => setPreviewPhotoRecord(r)}
+                            className="relative w-7 h-7 rounded-lg overflow-hidden border border-cyan-500/40 bg-slate-900 group hover:border-cyan-400 shrink-0 transition-transform active:scale-95"
+                            title="Klik untuk melihat foto presensi wajah"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={r.photoUrl}
+                              alt="Biometric Face"
+                              className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+                            />
+                            <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Camera className="w-3 h-3 text-white drop-shadow" />
+                            </div>
+                          </button>
+                        )}
+                        <span
+                          className={`text-[11px] font-mono px-2 py-0.5 rounded border ${
+                            r.verificationMethod === 'FACIAL_RECOG'
+                              ? 'bg-cyan-950/40 text-cyan-300 border-cyan-500/40 font-semibold'
+                              : 'bg-slate-900 text-slate-400 border-slate-800'
+                          }`}
+                        >
+                          {r.verificationMethod}
+                        </span>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -349,6 +379,75 @@ export default function AttendanceLedgerTable({
           </button>
         </div>
       </div>
+
+      {/* Admin Biometric Face Photo Audit Modal */}
+      {previewPhotoRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="relative w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center border border-cyan-500/20">
+                  <UserCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white">Verifikasi Wajah Biometrik</h4>
+                  <p className="text-[11px] font-mono text-slate-400">{previewPhotoRecord.date}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPreviewPhotoRecord(null)}
+                className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex items-center justify-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={previewPhotoRecord.photoUrl || ''}
+                alt="Face Audit Snapshot"
+                className="w-full max-h-72 object-contain"
+              />
+            </div>
+
+            <div className="space-y-1.5 text-xs bg-slate-950/70 p-3 rounded-xl border border-slate-800">
+              <div className="flex justify-between text-slate-400">
+                <span>Nama Karyawan:</span>
+                <span className="font-semibold text-white">{previewPhotoRecord.employeeName}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>NIK:</span>
+                <span className="font-mono text-slate-300">{previewPhotoRecord.employeeCode}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Divisi / Cabang:</span>
+                <span className="text-slate-300">{previewPhotoRecord.departmentName} • {previewPhotoRecord.branchName}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Jam Masuk:</span>
+                <span className="font-mono text-emerald-400 font-bold">{previewPhotoRecord.checkIn || '-'}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Metode:</span>
+                <span className="font-mono text-cyan-300 font-semibold">{previewPhotoRecord.verificationMethod}</span>
+              </div>
+              {previewPhotoRecord.notes && (
+                <div className="pt-1.5 border-t border-slate-800/80 text-[11px] text-slate-400 italic">
+                  {previewPhotoRecord.notes}
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setPreviewPhotoRecord(null)}
+              className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors"
+            >
+              Tutup Audit Wajah
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

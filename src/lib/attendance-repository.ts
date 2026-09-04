@@ -11,6 +11,7 @@ import {
   BulkImportBatch,
   BulkImportRow,
   Role,
+  VerificationMethod,
 } from '@/types';
 import {
   INITIAL_ATTENDANCE,
@@ -56,6 +57,9 @@ class AttendanceRepository {
       const storedLeaves = localStorage.getItem(`${STORAGE_PREFIX}leaves`);
       if (storedLeaves) this.leaveRequests = JSON.parse(storedLeaves);
 
+      const storedUsers = localStorage.getItem(`${STORAGE_PREFIX}users`);
+      if (storedUsers) this.users = JSON.parse(storedUsers);
+
       this.isInitialized = true;
     } catch (e) {
       console.error('Failed to load local repository state', e);
@@ -69,6 +73,7 @@ class AttendanceRepository {
       localStorage.setItem(`${STORAGE_PREFIX}batches`, JSON.stringify(this.batches));
       localStorage.setItem(`${STORAGE_PREFIX}logs`, JSON.stringify(this.auditLogs));
       localStorage.setItem(`${STORAGE_PREFIX}leaves`, JSON.stringify(this.leaveRequests));
+      localStorage.setItem(`${STORAGE_PREFIX}users`, JSON.stringify(this.users));
     } catch (e) {
       console.error('Failed to sync to localStorage', e);
     }
@@ -130,7 +135,7 @@ class AttendanceRepository {
     options: {
       notes?: string;
       photoUrl?: string;
-      method?: 'WEB_KIOSK' | 'MOBILE_GEO';
+      method?: VerificationMethod;
       latitude?: number;
       longitude?: number;
     }
@@ -206,7 +211,7 @@ class AttendanceRepository {
 
   public punchOut(
     user: User,
-    options: { notes?: string }
+    options: { notes?: string; photoUrl?: string }
   ): { success: boolean; record?: AttendanceRecord; message: string } {
     const now = new Date();
     const today = now.toISOString().split('T')[0];
@@ -230,7 +235,6 @@ class AttendanceRepository {
     const totalWorkingMins = Math.max(0, Math.round((now.getTime() - checkInTime.getTime()) / 60000));
     const effectiveHours = Number((totalWorkingMins / 60).toFixed(2));
 
-
     const otMins = Math.max(0, Math.round((now.getTime() - shiftEndTime.getTime()) / 60000));
     const isOvertime = otMins >= 60; // minimum 1 hour OT threshold
     const isEarly = now.getTime() < shiftEndTime.getTime() - 15 * 60000;
@@ -247,6 +251,7 @@ class AttendanceRepository {
       earlyMinutes: earlyMins,
       overtimeMinutes: otMins,
       effectiveWorkHours: effectiveHours,
+      photoUrl: options.photoUrl || record.photoUrl,
       notes: options.notes ? `${record.notes || ''} | ${options.notes}` : record.notes,
     };
 
@@ -464,6 +469,97 @@ class AttendanceRepository {
 
   public getUsers(): User[] {
     return [...this.users];
+  }
+
+  public getUserById(userId: string): User | undefined {
+    return this.users.find((u) => u.id === userId);
+  }
+
+  public bindUserDevice(userId: string, deviceId: string, deviceName: string): User | null {
+    const idx = this.users.findIndex((u) => u.id === userId);
+    if (idx === -1) return null;
+
+    const now = new Date().toISOString();
+    const updated: User = {
+      ...this.users[idx],
+      boundDeviceId: deviceId,
+      boundDeviceName: deviceName,
+      boundDeviceAt: now,
+    };
+
+    this.users[idx] = updated;
+    this.syncToStorage();
+
+    this.logAudit({
+      actorId: updated.id,
+      actorName: updated.fullName,
+      actorRole: updated.role,
+      action: 'DEVICE_BIND',
+      entityType: 'User',
+      entityId: updated.id,
+      details: `Pengikatan HP Perangkat Berhasil: ${deviceName} (${deviceId})`,
+    });
+
+    return updated;
+  }
+
+  public resetUserDevice(
+    userId: string,
+    actor?: { id: string; name: string; role: Role }
+  ): User | null {
+    const idx = this.users.findIndex((u) => u.id === userId);
+    if (idx === -1) return null;
+
+    const targetUser = this.users[idx];
+    const prevDevice = targetUser.boundDeviceName || targetUser.boundDeviceId || 'Perangkat';
+
+    const updated: User = {
+      ...targetUser,
+      boundDeviceId: null,
+      boundDeviceName: null,
+      boundDeviceAt: null,
+    };
+
+    this.users[idx] = updated;
+    this.syncToStorage();
+
+    this.logAudit({
+      actorId: actor ? actor.id : 'super-admin-sys',
+      actorName: actor ? actor.name : 'Super Administrator',
+      actorRole: actor ? actor.role : 'SUPER_ADMIN',
+      action: 'DEVICE_UNBIND',
+      entityType: 'User',
+      entityId: targetUser.id,
+      details: `Reset Pengikatan HP untuk ${targetUser.fullName}. Perangkat sebelumnya (${prevDevice}) dilepas.`,
+    });
+
+    return updated;
+  }
+
+  public updateUserFace(userId: string, facePhotoUrl: string): User | null {
+    const idx = this.users.findIndex((u) => u.id === userId);
+    if (idx === -1) return null;
+
+    const updated: User = {
+      ...this.users[idx],
+      facePhotoUrl,
+      faceEnrolledAt: new Date().toISOString(),
+    };
+
+    this.users[idx] = updated;
+    this.syncToStorage();
+
+    this.logAudit({
+      actorId: updated.id,
+      actorName: updated.fullName,
+      actorRole: updated.role,
+      action: 'ENROLL_FACE',
+      entityType: 'User',
+      entityId: updated.id,
+      details: `Pendaftaran Master Biometrik Wajah Karyawan Berhasil`,
+    });
+
+    return updated;
   }
 
   public getShifts(): Shift[] {

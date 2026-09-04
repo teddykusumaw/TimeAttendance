@@ -20,6 +20,10 @@ import {
   Briefcase,
   History,
   Info,
+  Smartphone,
+  Camera,
+  X,
+  UserCheck,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import LivePunchCard from '@/components/attendance/LivePunchCard';
@@ -30,6 +34,7 @@ export default function EmployeePortal() {
   const router = useRouter();
   const { currentUser, logout, switchRole } = useAuth();
   const [refreshKey, setRefreshKey] = useState(0);
+  const [previewPhotoRecord, setPreviewPhotoRecord] = useState<AttendanceRecord | null>(null);
 
   // Today's live record
   const todayRecord = attendanceRepo.getEmployeeTodayRecord(currentUser.id);
@@ -116,6 +121,14 @@ export default function EmployeePortal() {
                 </span>
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
                   Portal Mandiri Karyawan
+                </span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 flex items-center gap-1">
+                  <Smartphone className="w-3 h-3 text-cyan-400" />
+                  {currentUser.boundDeviceId ? (
+                    <span className="text-emerald-400">HP Terikat: {currentUser.boundDeviceName || 'Terdaftar'}</span>
+                  ) : (
+                    <span className="text-amber-400">HP Belum Terikat</span>
+                  )}
                 </span>
               </div>
               <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight mt-1">
@@ -256,46 +269,82 @@ export default function EmployeePortal() {
                 key={record.id}
                 className="p-4 rounded-xl bg-slate-900/60 hover:bg-slate-900 border border-slate-800 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
               >
-                <div className="space-y-1.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-bold text-white">
-                      {new Date(record.date).toLocaleDateString('id-ID', {
-                        weekday: 'long',
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
-                    </span>
-                    {getStatusBadge(record.status)}
-                  </div>
+                <div className="flex items-start gap-3">
+                  {/* Photo Thumbnail if Captured */}
+                  {record.photoUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewPhotoRecord(record)}
+                      className="relative w-12 h-12 rounded-xl overflow-hidden border border-cyan-500/40 bg-slate-950 shrink-0 group focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                      title="Lihat foto verifikasi biometrik wajah"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={record.photoUrl}
+                        alt="Face verification"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                      <div className="absolute inset-0 bg-slate-950/30 group-hover:bg-slate-950/10 flex items-center justify-center transition-colors">
+                        <Camera className="w-3.5 h-3.5 text-cyan-300 drop-shadow" />
+                      </div>
+                    </button>
+                  ) : null}
 
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
-                    <span className="flex items-center gap-1 text-emerald-400">
-                      <Clock className="w-3 h-3" />
-                      Masuk: <strong>{record.checkIn || '--:--'} WIB</strong>
-                    </span>
-                    <span className="flex items-center gap-1 text-slate-300">
-                      <Clock3 className="w-3 h-3 text-slate-400" />
-                      Pulang: <strong>{record.checkOut || '--:--'} WIB</strong>
-                    </span>
-                    {record.effectiveWorkHours > 0 ? (
-                      <span className="text-slate-400">
-                        Durasi: {record.effectiveWorkHours.toFixed(1)} Jam
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-bold text-white">
+                        {new Date(record.date).toLocaleDateString('id-ID', {
+                          weekday: 'long',
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        })}
                       </span>
-                    ) : null}
-                  </div>
+                      {getStatusBadge(record.status)}
+                    </div>
 
-                  {record.notes && (
-                    <p className="text-[11px] text-slate-500 italic mt-0.5">
-                      Catatan: {record.notes}
-                    </p>
-                  )}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
+                      <span className="flex items-center gap-1 text-emerald-400">
+                        <Clock className="w-3 h-3" />
+                        Masuk: <strong>{record.checkIn || '--:--'} WIB</strong>
+                      </span>
+                      <span className="flex items-center gap-1 text-slate-300">
+                        <Clock3 className="w-3 h-3 text-slate-400" />
+                        Pulang: <strong>{record.checkOut || '--:--'} WIB</strong>
+                      </span>
+                      {record.effectiveWorkHours > 0 ? (
+                        <span className="text-slate-400">
+                          Durasi: {record.effectiveWorkHours.toFixed(1)} Jam
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {record.notes && (
+                      <p className="text-[11px] text-slate-500 italic mt-0.5">
+                        Catatan: {record.notes}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
-                <div className="text-left sm:text-right shrink-0">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-mono font-medium bg-slate-800 text-slate-300 border border-slate-700/60">
+                <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+                  {record.photoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewPhotoRecord(record)}
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-300 border border-cyan-500/30 flex items-center gap-1 transition-colors"
+                    >
+                      <Camera className="w-3 h-3" />
+                      <span>Foto Bukti</span>
+                    </button>
+                  )}
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-mono font-medium border ${
+                    record.verificationMethod === 'FACIAL_RECOG'
+                      ? 'bg-cyan-950/30 text-cyan-300 border-cyan-500/40'
+                      : 'bg-slate-800 text-slate-300 border-slate-700/60'
+                  }`}>
                     <ShieldCheck className="w-3 h-3 text-cyan-400" />
-                    {record.verificationMethod}
+                    {record.verificationMethod === 'FACIAL_RECOG' ? 'Face Biometric' : record.verificationMethod}
                   </span>
                 </div>
               </div>
@@ -303,6 +352,68 @@ export default function EmployeePortal() {
           </div>
         )}
       </div>
+
+      {/* Face Photo Modal Preview */}
+      {previewPhotoRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="relative w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center border border-cyan-500/20">
+                  <UserCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white">Bukti Presensi Biometrik</h4>
+                  <p className="text-[11px] text-slate-400">{previewPhotoRecord.date}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPreviewPhotoRecord(null)}
+                className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex items-center justify-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={previewPhotoRecord.photoUrl || ''}
+                alt="Face Snapshot"
+                className="w-full max-h-72 object-contain"
+              />
+            </div>
+
+            <div className="space-y-1.5 text-xs bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+              <div className="flex justify-between text-slate-400">
+                <span>Pegawai:</span>
+                <span className="font-semibold text-white">{currentUser.fullName}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Jam Masuk:</span>
+                <span className="font-mono text-emerald-400 font-bold">{previewPhotoRecord.checkIn || '-'}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Metode:</span>
+                <span className="font-mono text-cyan-300 font-semibold">{previewPhotoRecord.verificationMethod}</span>
+              </div>
+              {previewPhotoRecord.notes && (
+                <div className="pt-1 border-t border-slate-800/80 text-[11px] text-slate-400 italic">
+                  {previewPhotoRecord.notes}
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setPreviewPhotoRecord(null)}
+              className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors"
+            >
+              Tutup Pratinjau
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

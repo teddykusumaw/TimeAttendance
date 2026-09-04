@@ -13,12 +13,38 @@ import {
   Save,
   Sliders,
   MapPin,
+  Smartphone,
+  Camera,
+  RotateCcw,
+  Search,
+  Shield,
+  User,
+  Unlock,
+  Info,
 } from 'lucide-react';
 import RoleGuard from '@/components/auth/RoleGuard';
 import { GeocodeAddress, reverseGeocode } from '@/lib/geo-utils';
 import GeofenceMap from '@/components/attendance/GeofenceMap';
+import { useAuth } from '@/context/AuthContext';
+import { attendanceRepo } from '@/lib/attendance-repository';
 
 export default function SettingsPage() {
+  const { currentUser, allUsers, resetUserDevice } = useAuth();
+  const [deviceSearch, setDeviceSearch] = useState('');
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [usersList, setUsersList] = useState(attendanceRepo.getUsers());
+
+  const handleResetDevice = (userId: string, userName: string) => {
+    const confirmReset = confirm(
+      `Apakah Anda yakin ingin me-reset binding HP untuk karyawan "${userName}"?\n\nSetelah di-reset, karyawan dapat mengikatkan perangkat HP barunya saat presensi berikutnya.`
+    );
+    if (!confirmReset) return;
+
+    resetUserDevice(userId);
+    setUsersList(attendanceRepo.getUsers());
+    setResetMessage(`Perangkat HP untuk ${userName} berhasil di-reset. Karyawan dapat mengikatkan HP baru.`);
+    setTimeout(() => setResetMessage(null), 5000);
+  };
   const [dbUrl, setDbUrl] = useState(
     'postgresql://neondb_owner:npg_x72Enterprise@ep-proud-dawn-a1b2c3d4-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require'
   );
@@ -339,7 +365,190 @@ export default function SettingsPage() {
             <Save className="w-4 h-4" />
             <span>Simpan Konfigurasi</span>
           </button>
+        </div>
+      </div>
 
+      {/* Enterprise HP Device Binding & Biometric Management Panel */}
+      <div className="enterprise-card rounded-2xl p-6 space-y-5 border-blue-500/20">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center border border-blue-500/20">
+              <Smartphone className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Manajemen Device Binding HP & Biometrik Wajah</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                  Security Tier-1
+                </span>
+              </h3>
+              <p className="text-xs text-slate-400">
+                Setiap user terikat maksimal 1 HP (kecuali Super Admin yang bebas multi-device)
+              </p>
+            </div>
+          </div>
+
+          {/* Search bar */}
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Cari nama atau NIK..."
+              value={deviceSearch}
+              onChange={(e) => setDeviceSearch(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-900 border border-slate-800 text-white placeholder-slate-500 outline-none focus:border-blue-500 transition-colors"
+            />
+          </div>
+        </div>
+
+        {/* Policy Information Box */}
+        <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 flex items-start gap-3 text-xs">
+          <Info className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="font-semibold text-slate-200">
+              Kebijakan 1 HP per Karyawan (Enterprise Device Locking):
+            </p>
+            <p className="text-slate-400 leading-relaxed">
+              Mencegah tindak kecurangan titip absen. Karyawan hanya bisa melakukan presensi dari 1 perangkat HP yang telah terverifikasi saat pertama kali presensi. Akun <strong className="text-purple-300">Super Admin (superuser)</strong> dibebaskan dari pembatasan ini. Jika karyawan mengganti HP atau perangkat hilang, Super Admin dapat melakukan <strong className="text-amber-400">Reset Binding HP</strong> di bawah.
+            </p>
+          </div>
+        </div>
+
+        {/* Reset Feedback Notification */}
+        {resetMessage && (
+          <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-2 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{resetMessage}</span>
+          </div>
+        )}
+
+        {/* Device Binding Summary Stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+            <div className="text-slate-400">Total User Terdaftar</div>
+            <div className="text-xl font-bold text-white mt-1">{usersList.length}</div>
+          </div>
+          <div className="p-3.5 rounded-xl bg-emerald-950/20 border border-emerald-500/20">
+            <div className="text-emerald-400">HP Terikat Aktif</div>
+            <div className="text-xl font-bold text-emerald-300 mt-1">
+              {usersList.filter((u) => u.boundDeviceId).length}
+            </div>
+          </div>
+          <div className="p-3.5 rounded-xl bg-purple-950/20 border border-purple-500/20">
+            <div className="text-purple-400">Superuser (Exempt)</div>
+            <div className="text-xl font-bold text-purple-300 mt-1">
+              {usersList.filter((u) => u.role === 'SUPER_ADMIN').length}
+            </div>
+          </div>
+          <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/20">
+            <div className="text-amber-400">Belum Mengikat HP</div>
+            <div className="text-xl font-bold text-amber-300 mt-1">
+              {usersList.filter((u) => !u.boundDeviceId && u.role !== 'SUPER_ADMIN').length}
+            </div>
+          </div>
+        </div>
+
+        {/* Users Device Binding Table */}
+        <div className="rounded-xl border border-slate-800 overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead className="bg-slate-900 text-slate-400 border-b border-slate-800 select-none">
+              <tr>
+                <th className="p-3.5 font-semibold">Karyawan / Akun</th>
+                <th className="p-3.5 font-semibold">Peran (Role)</th>
+                <th className="p-3.5 font-semibold">Status Binding HP (1-Device)</th>
+                <th className="p-3.5 font-semibold">Biometrik Wajah</th>
+                <th className="p-3.5 font-semibold text-right">Tindakan Super Admin</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 bg-slate-950/40">
+              {usersList
+                .filter(
+                  (u) =>
+                    u.fullName.toLowerCase().includes(deviceSearch.toLowerCase()) ||
+                    u.employeeCode.toLowerCase().includes(deviceSearch.toLowerCase()) ||
+                    u.email.toLowerCase().includes(deviceSearch.toLowerCase())
+                )
+                .map((u) => {
+                  const isSuper = u.role === 'SUPER_ADMIN';
+                  const isBound = Boolean(u.boundDeviceId);
+
+                  return (
+                    <tr key={u.id} className="hover:bg-slate-900/40 transition-colors">
+                      <td className="p-3.5">
+                        <div className="font-semibold text-white">{u.fullName}</div>
+                        <div className="text-[11px] font-mono text-slate-400">{u.employeeCode} • {u.email}</div>
+                      </td>
+                      <td className="p-3.5">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                            isSuper
+                              ? 'bg-purple-950/40 text-purple-300 border-purple-500/30'
+                              : u.role === 'HR_ADMIN'
+                              ? 'bg-blue-950/40 text-blue-300 border-blue-500/30'
+                              : u.role === 'MANAGER'
+                              ? 'bg-amber-950/40 text-amber-300 border-amber-500/30'
+                              : 'bg-slate-900 text-slate-300 border-slate-700'
+                          }`}
+                        >
+                          {u.role}
+                        </span>
+                      </td>
+                      <td className="p-3.5">
+                        {isSuper ? (
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-purple-950/30 text-purple-300 border border-purple-500/30">
+                            <Shield className="w-3.5 h-3.5 text-purple-400" />
+                            <span>Bebas Multi-Device (Superuser)</span>
+                          </div>
+                        ) : isBound ? (
+                          <div className="space-y-0.5">
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[11px] font-medium bg-emerald-950/40 text-emerald-300 border border-emerald-500/30">
+                              <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+                              <span className="font-semibold">{u.boundDeviceName || 'Perangkat Terdaftar'}</span>
+                            </div>
+                            {u.boundDeviceAt && (
+                              <div className="text-[10px] text-slate-500 font-mono">
+                                Terikat: {new Date(u.boundDeviceAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-medium bg-amber-950/30 text-amber-400 border border-amber-500/30">
+                            Belum Terikat HP
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3.5">
+                        {u.facePhotoUrl ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium bg-cyan-950/30 text-cyan-300 border border-cyan-500/30">
+                            <Camera className="w-3 h-3 text-cyan-400" />
+                            <span>Biometrik Terdaftar</span>
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-500">Belum Ada Wajah</span>
+                        )}
+                      </td>
+                      <td className="p-3.5 text-right">
+                        {isSuper ? (
+                          <span className="text-[11px] text-slate-500 italic">Tidak Perlu Reset</span>
+                        ) : isBound ? (
+                          <button
+                            type="button"
+                            onClick={() => handleResetDevice(u.id, u.fullName)}
+                            className="px-3 py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-500/30 text-xs font-semibold inline-flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
+                            title="Reset ikatan HP agar karyawan dapat menggunakan HP baru"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            <span>Reset Binding HP</span>
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-slate-500 italic">Menunggu Presensi Pertama</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
