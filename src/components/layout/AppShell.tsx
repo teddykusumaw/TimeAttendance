@@ -13,6 +13,8 @@ function AppShellContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const isLoginPage = pathname === '/login';
+  const isInvitePage = pathname.startsWith('/invite');
+  const isPublicRoute = isLoginPage || isInvitePage;
   const { sidebarCollapsed } = useLayout();
   const { currentUser, isLoggedIn, isAuthInitialized } = useAuth();
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
@@ -21,7 +23,7 @@ function AppShellContent({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isAuthInitialized) return;
 
-    if (!isLoggedIn && !isLoginPage) {
+    if (!isLoggedIn && !isPublicRoute) {
       router.replace('/login');
       return;
     }
@@ -35,6 +37,7 @@ function AppShellContent({ children }: { children: React.ReactNode }) {
     if (isLoggedIn && currentUser.role === 'EMPLOYEE') {
       const restrictedAdminRoutes = [
         '/attendance',
+        '/employees',
         '/shifts',
         '/bulk-upload',
         '/audit-log',
@@ -48,10 +51,10 @@ function AppShellContent({ children }: { children: React.ReactNode }) {
         router.replace('/');
       }
     }
-  }, [isAuthInitialized, isLoggedIn, isLoginPage, currentUser.role, pathname, router]);
+  }, [isAuthInitialized, isLoggedIn, isLoginPage, isPublicRoute, currentUser.role, pathname, router]);
 
-  if (isLoginPage) {
-    return <main className="min-h-screen bg-slate-950 text-slate-100">{children}</main>;
+  if (isPublicRoute) {
+    return <main className="min-h-screen bg-[#0b0f19] text-slate-100">{children}</main>;
   }
 
   // Loading state during auth initialization

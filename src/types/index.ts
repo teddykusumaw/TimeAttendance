@@ -181,3 +181,53 @@ export interface DashboardMetrics {
   averageLateMinutes: number;
   totalOvertimeHours: number;
 }
+
+export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'EXPIRED' | 'REVOKED';
+
+export interface EmployeeInvitation {
+  id: string;
+  token: string;
+  email: string;
+  fullName: string;
+  role: Role;
+  jobTitle: string;
+  phone?: string | null;
+  branchId: string;
+  branchName?: string;
+  departmentId: string;
+  departmentName?: string;
+  shiftId?: string | null;
+  shiftName?: string;
+  status: InvitationStatus;
+  invitedBy: string;
+  invitedByName: string;
+  expiresAt: string;
+  acceptedAt?: string | null;
+  createdAt: string;
+}
+
+export interface CreateEmployeePayload {
+  employeeCode: string;
+  email: string;
+  fullName: string;
+  role: Role;
+  jobTitle: string;
+  phone?: string;
+  branchId: string;
+  departmentId: string;
+  shiftId?: string;
+  actor?: { id: string; name: string; role: Role };
+}
+
+export interface CreateInvitationPayload {
+  email: string;
+  fullName: string;
+  role: Role;
+  jobTitle: string;
+  phone?: string;
+  branchId: string;
+  departmentId: string;
+  shiftId?: string;
+  invitedBy: string;
+  invitedByName: string;
+}

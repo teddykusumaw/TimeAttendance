@@ -169,3 +169,121 @@ export async function PATCH(request: Request) {
     );
   }
 }
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const {
+      employeeCode,
+      email,
+      fullName,
+      role = 'EMPLOYEE',
+      jobTitle,
+      phone,
+      branchId,
+      departmentId,
+      shiftId,
+      avatarUrl,
+      actor,
+    } = body;
+
+    if (!employeeCode || !email || !fullName || !branchId || !departmentId) {
+      return NextResponse.json(
+        { status: 'error', message: 'Kolom NIK, email, nama lengkap, cabang, dan departemen wajib diisi.' },
+        { status: 400 }
+      );
+    }
+
+    // Check duplicate employeeCode or email
+    const existing = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { employeeCode: employeeCode.trim() },
+          { email: email.trim().toLowerCase() },
+        ],
+      },
+    });
+
+    if (existing) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          message:
+            existing.employeeCode === employeeCode.trim()
+              ? `NIK / Kode Karyawan "${employeeCode}" sudah terdaftar.`
+              : `Email "${email}" sudah digunakan oleh karyawan lain.`,
+        },
+        { status: 409 }
+      );
+    }
+
+    const defaultAvatar =
+      avatarUrl ||
+      `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`;
+
+    const newUser = await prisma.user.create({
+      data: {
+        employeeCode: employeeCode.trim(),
+        email: email.trim().toLowerCase(),
+        passwordHash: 'argon2_default_hash',
+        fullName: fullName.trim(),
+        role: role || 'EMPLOYEE',
+        jobTitle: jobTitle?.trim() || 'Staff Karyawan',
+        avatarUrl: defaultAvatar,
+        phone: phone?.trim() || null,
+        isActive: true,
+        branchId,
+        departmentId,
+        shiftId: shiftId || null,
+      },
+      include: {
+        branch: { select: { id: true, name: true, city: true } },
+        department: { select: { id: true, name: true } },
+        shift: { select: { id: true, name: true } },
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorId: actor?.id || newUser.id,
+        action: 'CREATE_USER',
+        entityType: 'User',
+        entityId: newUser.id,
+        details: `Penambahan Karyawan Baru Manual: ${newUser.fullName} (${newUser.employeeCode}) sebagai ${newUser.jobTitle}`,
+      },
+    });
+
+    const mapped = {
+      id: newUser.id,
+      employeeCode: newUser.employeeCode,
+      email: newUser.email,
+      fullName: newUser.fullName,
+      role: newUser.role,
+      jobTitle: newUser.jobTitle,
+      avatarUrl: newUser.avatarUrl,
+      phone: newUser.phone,
+      isActive: newUser.isActive,
+      branchId: newUser.branchId,
+      branchName: newUser.branch.name,
+      departmentId: newUser.departmentId,
+      departmentName: newUser.department.name,
+      shiftId: newUser.shiftId,
+      shiftName: newUser.shift?.name || undefined,
+      boundDeviceId: newUser.boundDeviceId || undefined,
+      boundDeviceName: newUser.boundDeviceName || undefined,
+      facePhotoUrl: newUser.facePhotoUrl || undefined,
+    };
+
+    return NextResponse.json({
+      status: 'success',
+      message: `Karyawan ${newUser.fullName} (${newUser.employeeCode}) berhasil ditambahkan ke database.`,
+      data: mapped,
+    });
+  } catch (err: any) {
+    console.error('Error creating user in database:', err);
+    return NextResponse.json(
+      { status: 'error', message: err.message || 'Gagal menambahkan karyawan ke database.' },
+      { status: 500 }
+    );
+  }
+}

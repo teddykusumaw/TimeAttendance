@@ -12,6 +12,9 @@ import {
   BulkImportRow,
   Role,
   VerificationMethod,
+  EmployeeInvitation,
+  CreateEmployeePayload,
+  CreateInvitationPayload,
 } from '@/types';
 import {
   INITIAL_ATTENDANCE,
@@ -36,6 +39,7 @@ class AttendanceRepository {
   private leaveRequests: LeaveRequest[] = [...INITIAL_LEAVE_REQUESTS];
   private auditLogs: AuditLog[] = [...INITIAL_AUDIT_LOGS];
   private batches: BulkImportBatch[] = [...INITIAL_IMPORT_BATCHES];
+  private invitations: EmployeeInvitation[] = [];
   private isInitialized = false;
 
   constructor() {
@@ -64,6 +68,9 @@ class AttendanceRepository {
 
       const storedUsers = localStorage.getItem(`${STORAGE_PREFIX}users`);
       if (storedUsers) this.users = JSON.parse(storedUsers);
+
+      const storedInvitations = localStorage.getItem(`${STORAGE_PREFIX}invitations`);
+      if (storedInvitations) this.invitations = JSON.parse(storedInvitations);
 
       this.isInitialized = true;
     } catch (e) {
@@ -95,6 +102,17 @@ class AttendanceRepository {
           window.dispatchEvent(new CustomEvent('attendance_updated'));
         }
       }
+
+      // 3. Fetch Invitations from Neon PostgreSQL
+      const invRes = await fetch('/api/invitations', { cache: 'no-store' });
+      if (invRes.ok) {
+        const json = await invRes.json();
+        if (json.status === 'success' && Array.isArray(json.data)) {
+          this.invitations = json.data;
+          this.syncToStorage();
+          window.dispatchEvent(new CustomEvent('invitations_synced', { detail: this.invitations }));
+        }
+      }
     } catch (e) {
       console.warn('[Neon DB] Background sync note:', e);
     }
@@ -108,6 +126,7 @@ class AttendanceRepository {
       localStorage.setItem(`${STORAGE_PREFIX}logs`, JSON.stringify(this.auditLogs));
       localStorage.setItem(`${STORAGE_PREFIX}leaves`, JSON.stringify(this.leaveRequests));
       localStorage.setItem(`${STORAGE_PREFIX}users`, JSON.stringify(this.users));
+      localStorage.setItem(`${STORAGE_PREFIX}invitations`, JSON.stringify(this.invitations));
     } catch (e) {
       console.error('Failed to sync to localStorage', e);
     }
@@ -545,7 +564,100 @@ class AttendanceRepository {
   }
 
   public getUserById(userId: string): User | undefined {
-    return this.users.find((u) => u.id === userId);
+    return this.users.find((u) => u.id === userId || u.employeeCode === userId);
+  }
+
+  public getInvitations(): EmployeeInvitation[] {
+    return [...this.invitations];
+  }
+
+  public async createEmployee(payload: CreateEmployeePayload): Promise<User> {
+    const branch = this.branches.find((b) => b.id === payload.branchId);
+    const department = this.departments.find((d) => d.id === payload.departmentId);
+    const shift = this.shifts.find((s) => s.id === payload.shiftId);
+
+    // Call /api/users POST
+    const res = await fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const json = await res.json();
+    if (!res.ok || json.status !== 'success') {
+      throw new Error(json.message || 'Gagal menambahkan karyawan ke database.');
+    }
+
+    const newUser: User = json.data;
+    const existingIdx = this.users.findIndex(
+      (u) => u.id === newUser.id || u.employeeCode === newUser.employeeCode
+    );
+    if (existingIdx >= 0) {
+      this.users[existingIdx] = newUser;
+    } else {
+      this.users.push(newUser);
+    }
+    this.syncToStorage();
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('users_synced', { detail: this.users }));
+    }
+
+    return newUser;
+  }
+
+  public async createInvitation(payload: CreateInvitationPayload): Promise<EmployeeInvitation> {
+    const res = await fetch('/api/invitations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const json = await res.json();
+    if (!res.ok || json.status !== 'success') {
+      throw new Error(json.message || 'Gagal membuat link undangan.');
+    }
+
+    const newInv: EmployeeInvitation = json.data;
+    const existingIdx = this.invitations.findIndex((i) => i.id === newInv.id);
+    if (existingIdx >= 0) {
+      this.invitations[existingIdx] = newInv;
+    } else {
+      this.invitations.unshift(newInv);
+    }
+    this.syncToStorage();
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('invitations_synced', { detail: this.invitations }));
+    }
+
+    return newInv;
+  }
+
+  public async revokeInvitation(invitationId: string): Promise<boolean> {
+    try {
+      const res = await fetch('/api/invitations', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'REVOKE', invitationId }),
+      });
+      if (res.ok) {
+        const idx = this.invitations.findIndex((i) => i.id === invitationId);
+        if (idx >= 0) {
+          this.invitations[idx].status = 'REVOKED';
+          this.syncToStorage();
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('invitations_synced', { detail: this.invitations })
+            );
+          }
+        }
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
   }
 
   public bindUserDevice(userId: string, deviceId: string, deviceName: string): User | null {

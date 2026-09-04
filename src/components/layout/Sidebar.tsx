@@ -44,6 +44,12 @@ export default function Sidebar() {
       roles: ['SUPER_ADMIN', 'HR_ADMIN', 'MANAGER', 'EMPLOYEE'] as Role[],
     },
     {
+      label: 'Data Karyawan',
+      href: '/employees',
+      icon: Users,
+      roles: ['SUPER_ADMIN', 'HR_ADMIN', 'MANAGER'] as Role[],
+    },
+    {
       label: 'Bulk Excel Hub',
       href: '/bulk-upload',
       icon: FileSpreadsheet,

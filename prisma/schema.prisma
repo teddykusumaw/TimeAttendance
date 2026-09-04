@@ -56,17 +56,19 @@ model Branch {
   departments Department[]
   users       User[]
   records     AttendanceRecord[]
+  invitations Invitation[]
 }
 
 model Department {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  name      String
-  branchId  String
-  branch    Branch   @relation(fields: [branchId], references: [id])
-  users     User[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String       @id @default(cuid())
+  code        String       @unique
+  name        String
+  branchId    String
+  branch      Branch       @relation(fields: [branchId], references: [id])
+  users       User[]
+  invitations Invitation[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 }
 
 model Shift {
@@ -83,6 +85,7 @@ model Shift {
   updatedAt       DateTime           @updatedAt
   users           User[]
   records         AttendanceRecord[]
+  invitations     Invitation[]
 }
 
 model User {
@@ -207,4 +210,38 @@ model AuditLog {
 
   @@index([action])
   @@index([createdAt])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+model Invitation {
+  id            String           @id @default(cuid())
+  token         String           @unique
+  email         String
+  fullName      String
+  role          Role             @default(EMPLOYEE)
+  jobTitle      String
+  phone         String?
+  branchId      String
+  branch        Branch           @relation(fields: [branchId], references: [id])
+  departmentId  String
+  department    Department       @relation(fields: [departmentId], references: [id])
+  shiftId       String?
+  shift         Shift?           @relation(fields: [shiftId], references: [id])
+  status        InvitationStatus @default(PENDING)
+  invitedBy     String
+  invitedByName String
+  expiresAt     DateTime
+  acceptedAt    DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([token])
+  @@index([email])
+  @@index([status])
 }
